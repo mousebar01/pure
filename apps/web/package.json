@@ -1,0 +1,76 @@
+{
+  "name": "pure-web",
+  "productName": "pure",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local web interface for the pi coding agent",
+  "homepage": "https://github.com/mousebar01/pure#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mousebar01/pure.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mousebar01/pure/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "pure": "bin/pure.js"
+  },
+  "files": [
+    "bin",
+    ".next",
+    "!.next/cache",
+    "!.next/dev",
+    "!.next/**/*.js.map",
+    "public",
+    "next.config.ts",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "node scripts/run-next.mjs dev 127.0.0.1",
+    "dev:lan": "node scripts/run-next.mjs dev 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test app/api/agent/events-route.test.mjs components/SessionSidebar.test.mjs lib/mobile-device-auth.test.mjs lib/i18n/registry.test.mjs lib/pure-options.test.mjs",
+    "build": "next build --webpack",
+    "start": "node scripts/run-next.mjs start 127.0.0.1",
+    "start:lan": "node scripts/run-next.mjs start 0.0.0.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.1",
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-tui": "0.84.1",
+    "@types/qrcode": "^1.5.6",
+    "lucide-react": "^0.562.0",
+    "next": "16.3.0",
+    "proper-lockfile": "4.1.2",
+    "qrcode": "^1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "undici": "8.10.0"
+  },
+  "devDependencies": {
+    "@lobehub/icons": "^5.6.0",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/node": "^25",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "katex": "^0.16.47",
+    "mammoth": "^1.12.0",
+    "mermaid": "11.16.1",
+    "postcss": "8.5.26",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "tailwindcss": "^4.2.2"
+  }
+}

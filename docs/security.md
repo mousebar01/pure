@@ -1,0 +1,115 @@
+# 安全模型
+
+pure 默认只监听 `127.0.0.1`，但它能调用高权限的智能体、读写文件、执行 git 操作，所以一旦开放到网络，安全边界就变得关键。整个模型分三层，按请求经过顺序：
+
+```
+proxy.ts（Next 中间件）
+  ① Host / Origin 校验（防 DNS rebinding / 跨站）
+  ② Basic Auth / 移动 Bearer 认证
+        ▼
+业务路由内
+  ③ 文件访问白名单 + 项目信任（按需）
+```
+
+## Host / Origin 校验
+
+实现：`apps/web/lib/request-security.ts`。
+
+目标：防 **DNS rebinding**（恶意域名解析到 127.0.0.1 后窃取本地服务）和**跨站请求**。
+
+**Host 校验 `isApiRequestHostAllowed`**：
+
+- 从 `Host` 头解析主机名（拒绝带空格/`@`/反斜杠/用户信息/非根路径的畸形值）
+- 回环名（`localhost`、`*.localhost`）或**任意 IP 字面量**直接放行——浏览器会把字面 IP 留在 Host 头里，天然免疫 DNS rebinding
+- 其他主机名必须与配置集合完全相等：`PURE_HOSTNAME` + `PURE_ALLOWED_HOSTS`（逗号分隔的精确主机名）。反向代理换了外部主机名时必须配置 `PURE_ALLOWED_HOSTS`
+
+**Origin 校验 `isApiRequestOriginAllowed`**：
+
+- `sec-fetch-site: cross-site` 直接拒绝
+- 有 `Origin` 头时，必须与请求自身 origin 同源
+- 只有带 `origin`/`sec-fetch-site` 头时才检查（保留非浏览器客户端的兼容）
+- 例外：用户主动导航（`sec-fetch-mode: navigate` + `dest: document` + `user: ?1`）到 `/api/sessions/<id>/export` 时豁免 Origin 检查（这是从地址栏打开导出的 HTML）
+
+非 API 请求（页面、静态资源）只做 Host 校验，不做 Origin 校验。
+
+## 认证
+
+实现：`apps/web/lib/web-auth.ts`。
+
+`PURE_PASSWORD` 非空时启用 HTTP Basic Auth：
+
+- 用户名固定为 `pi`（`PURE_AUTH_USERNAME`）
+- 凭据解析：base64 严格往返校验 + UTF-8 fatal 解码，取第一个 `:` 分割
+- 用户名与密码各自 SHA-256 后 `timingSafeEqual` 比较（定长哈希消除长度侧信道）
+- 401 响应带 `WWW-Authenticate: Basic realm="pure"`
+
+在 Basic 之上还有移动端 Bearer：
+
+- API 请求可被有效的移动设备 token（`Authorization: Bearer pim_...`）放行，页面仍必须 Basic
+- `/api/mobile/devices`（设备管理）**只认 Basic 不认 Bearer**——设备 token 不能用来添加/吊销其他设备
+- `/api/mobile/pairing/redeem`（扫码兑换）豁免认证，否则移动端在没密码时无法完成首次配对
+
+⚠️ Basic Auth 不加密传输，明文 HTTP 暴露到公网等于泄露密码。开放网络访问必须走 HTTPS 反向代理或可信 VPN。
+
+## 文件访问白名单
+
+实现：`apps/web/lib/file-access.ts` + `path-security.ts`。
+
+`/api/files` **不是通用文件浏览器**，能读什么完全由白名单决定：
+
+**白名单来源**（`getAllowedFileRoots()`，5s TTL 缓存）：
+
+1. 所有会话的 `cwd`
+2. 每个 cwd 解析出的 `projectRoot`（worktree 归并到主仓库根，见 [architecture.md](architecture.md) 与 `lib/worktree.ts`）
+3. `~/pi-cwd-YYYYMMDD` 目录（`/api/default-cwd` 创建）
+4. `allowFileRoot()` 显式追加的根（`/api/cwd/validate`、`/api/worktrees`、`/api/agent/new` 等会追加）
+
+**判定**：
+
+- 词法判定 `isFilePathAllowed`：resolve 后前缀匹配（Windows 规则大小写不敏感）
+- 对已存在路径再做 `isExistingFilePathAllowed`：目标与每个根都 `realpathSync` 后再比，**防符号链接逃逸**
+- 非 `list` 类型的读取还允许「会话引用过的文件」（`session-file-references.ts` 扫描会话条目里的路径引用，含 `file://`、URL 解码、bash 输出的 `fullOutputPath`）
+
+**上传**：POST 在 realpath 双侧解析后才写入；单文件 ≤ 25MB、总 ≤ 100MB、请求体 ≤ 101MB（`bounded-form-data.ts` 限制 multipart 防止超大 body）。
+
+**git 操作**：`/api/git/status`、`/api/git/diff` 的 cwd 必须过白名单 + realpath 复核；deleted 文件的 diff 在 `getGitFileDiff` 内部校验仓库归属。
+
+## 项目信任
+
+实现：`apps/web/lib/project-trust.ts`。
+
+为什么需要：pi 的扩展系统允许项目 `.pi/extensions`、项目 `.pi/settings.json` 扩展、`.agents/skills` 在 agent 启动时**执行代码**。如果没有门控，在 pure 里打开一个仓库就可能执行仓库里的代码（issue #236）。
+
+机制：
+
+- `getProjectTrustStatus(cwd)`：SDK 的 `hasTrustRequiringProjectResources(cwd)` 判断该项目是否有需要信任的资源；没有 → 直接视为已信任
+- 有 → 查与 pi CLI **共享**的 `ProjectTrustStore(agentDir)`，**默认不信任**，只有 `trusted === true` 才放行
+- `projectTrustReloadOptions()` 把扩展加载门控在 `resolveProjectTrust` 之后，未信任时这些资源保持休眠
+- 前端：AppShell 轮询 `/api/project-trust`，未信任的项目弹 `ProjectTrustDialog`；信任成功后销毁该 cwd 的 RPC 会话并刷新模型缓存（`/api/project-trust` POST 的行为）
+
+## 敏感文件权限
+
+| 文件 | 权限 | 说明 |
+| --- | --- | --- |
+| `~/.pi/agent/mobile-devices.json` | 0600 | 只存 token 的 SHA-256 哈希，绝不落明文 |
+| `~/.pi/agent/auth.json` | 0600 | API key / OAuth 凭据，由 pi AuthStorage 管理 |
+| 配对票据 | 内存 | `globalThis.__piMobilePairingTickets`，2 分钟 TTL |
+
+## 移动端设备 token
+
+实现：`apps/web/lib/mobile-device-auth.ts`。
+
+- token 形如 `pim_` + 32 字节 base64url，只在兑换成功那一刻返回给客户端
+- 服务端存 `sha256(token)` 的 hex；校验时对提交的 token 哈希后 `timingSafeEqual` 比较
+- 读写用 `proper-lockfile` 串行化（与 pi auth storage 同一把锁的文件操作模式），`ensureFile` 建 0600
+- 配对票据（`mobile-pairing.ts`）：`id + secret`（secret 只存哈希），TTL 2 分钟；兑换时先置 `consumedAt` 预留再落盘，**防并发扫同一个二维码拿到两个 token**
+
+## 给开发者的清单
+
+改任何 API 端点前确认：
+
+- [ ] 端点是否要纳入 Host/Origin 校验（API 默认纳入，豁免要有理由）
+- [ ] 认证策略：Basic / 移动 Bearer / 两者 / 显式豁免（如配对兑换）
+- [ ] 涉及文件路径时过白名单 + realpath；涉及 git 时校验仓库归属
+- [ ] 涉及项目资源时考虑项目信任门控
+- [ ] 绝不把 API key、token 明文返回给前端（状态端点只回「已配置/未配置」）

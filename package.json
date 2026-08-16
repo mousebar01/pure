@@ -1,0 +1,37 @@
+{
+  "name": "pure",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/mobile"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace pure-web",
+    "dev:lan": "npm run dev:lan --workspace pure-web",
+    "dev:mobile": "npm --prefix apps/mobile start",
+    "typecheck": "npm run typecheck --workspace pure-web",
+    "typecheck:mobile": "npm --prefix apps/mobile run typecheck",
+    "test": "npm run test --workspace pure-web",
+    "test:mobile": "npm --prefix apps/mobile test",
+    "build": "npm run build --workspace pure-web",
+    "start": "npm run start --workspace pure-web",
+    "start:lan": "npm run start:lan --workspace pure-web",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "jiti": "^2.7.0",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "tar": "7.5.22",
+    "tmp": "0.2.7",
+    "js-yaml": "5.2.3",
+    "dompurify": "3.4.13"
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "expo": {
+    "name": "Pure Mobile",
+    "slug": "pure",
+    "version": "0.1.0",
+    "description": "Mobile client for pure",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "pure-mobile",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#f5f5f5",
+    "primaryColor": "#2563eb",
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": false,
+          "faceIDPermission": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 Pure Mobile 选择要发送给 Pi 的图片。",
+          "cameraPermission": "允许 Pure Mobile 扫描电脑上的配对二维码。",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 Pure Mobile 扫描电脑上的配对二维码。",
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.pure.mobile",
+      "buildNumber": "1",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Pure Mobile 需要访问局域网中的 pure 服务。",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "dev.pure.mobile",
+      "versionCode": 1,
+      "allowBackup": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#f5f5f5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fd252b06-2556-48bc-a86a-767029cee28e"
+      }
+    }
+  }
+}
