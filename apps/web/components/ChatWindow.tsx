@@ -2,6 +2,7 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, ToolResultMessage } from "@/lib/types";
+import type { ConversationAnnotation } from "@/lib/conversation-annotations";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -233,6 +234,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((content: string) => {
     chatInputRef?.current?.insertIfEmpty(content);
+  }, [chatInputRef]);
+
+  const handleAddAnnotation = useCallback((annotation: ConversationAnnotation) => {
+    chatInputRef?.current?.addAnnotation(annotation);
   }, [chatInputRef]);
 
   const {
@@ -649,6 +654,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={data?.sessionId ?? session?.id ?? sessionIdRef.current ?? undefined}
                     processDetails={options.processDetails}
+                    onAddAnnotation={options.processDetails ? undefined : handleAddAnnotation}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;

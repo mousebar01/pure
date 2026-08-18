@@ -33,7 +33,7 @@
     "dev": "node scripts/run-next.mjs dev 127.0.0.1",
     "dev:lan": "node scripts/run-next.mjs dev 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test app/api/agent/events-route.test.mjs components/SessionSidebar.test.mjs lib/mobile-device-auth.test.mjs lib/i18n/registry.test.mjs lib/pure-options.test.mjs",
+    "test": "node --test app/api/agent/events-route.test.mjs components/SessionSidebar.test.mjs lib/mobile-device-auth.test.mjs lib/i18n/registry.test.mjs lib/pure-options.test.mjs lib/conversation-annotations.test.mjs",
     "build": "next build --webpack",
     "start": "node scripts/run-next.mjs start 127.0.0.1",
     "start:lan": "node scripts/run-next.mjs start 0.0.0.0"

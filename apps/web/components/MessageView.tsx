@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Eye, FileText, Pencil, Search, Terminal, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
+import { MessageSelectionPopover, useMessageSelectionState } from "./MessageSelectionPopover";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -22,6 +23,7 @@ import type {
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
+import { createConversationAnnotation, parseAnnotatedMessage, type ConversationAnnotation } from "@/lib/conversation-annotations";
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
@@ -72,6 +74,7 @@ interface Props {
   prevTimestamp?: number;
   sessionId?: string;
   processDetails?: boolean;
+  onAddAnnotation?: (annotation: ConversationAnnotation) => void;
 }
 
 function formatTime(ts?: number): string | null {
@@ -101,12 +104,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} entryId={entryId} onOpenFile={onOpenFile} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onAddAnnotation={onAddAnnotation} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -138,16 +141,19 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId
-    && prev.processDetails === next.processDetails;
+    && prev.processDetails === next.processDetails
+    && prev.onAddAnnotation === next.onAddAnnotation;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAssistantEntryId, onEditContent, onAddAnnotation }: {
   message: UserMessage;
   cwd?: string;
+  entryId?: string;
   onOpenFile?: (filePath: string) => void;
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
+  onAddAnnotation?: (annotation: ConversationAnnotation) => void;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -161,6 +167,14 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
           .map((b) => b.text)
           .join("\n");
 
+  const parsedContent = useMemo(() => parseAnnotatedMessage(content), [content]);
+  const selectionState = useMessageSelectionState(
+    useCallback((quote: string, comment: string) => {
+      onAddAnnotation?.(createConversationAnnotation({ quote, comment, sourceRole: "user", sourceEntryId: entryId }));
+    }, [entryId, onAddAnnotation]),
+    !onAddAnnotation,
+  );
+
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"
       ? []
@@ -170,7 +184,11 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
   const copyContent = () => {
-    copyText(content).then(() => {
+    const copiedAnnotations = parsedContent.annotations.map((annotation, index) => {
+      const quote = annotation.quote.split("\n").map((line) => `> ${line}`).join("\n");
+      return [`引用 ${index + 1}`, quote, annotation.comment ? `评论：${annotation.comment}` : ""].filter(Boolean).join("\n");
+    });
+    copyText([parsedContent.text, ...copiedAnnotations].filter(Boolean).join("\n\n")).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -178,6 +196,7 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
 
   return (
     <div
+      ref={selectionState.rootRef}
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -222,7 +241,8 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
               })}
             </div>
           )}
-          {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
+          {parsedContent.text && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{parsedContent.text}</MarkdownBody>}
+          {parsedContent.annotations.length > 0 && <AnnotationHistory annotations={parsedContent.annotations} />}
         </div>
 
       </div>
@@ -278,7 +298,7 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
             }}>
               {canNavigate && (
                 <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
+                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(parsedContent.text); }}
                    title={t("i18n.editFromHereTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
@@ -306,6 +326,25 @@ function UserMessageView({ message, cwd, onOpenFile, onNavigate, prevAssistantEn
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
         </div>
       )}
+      <MessageSelectionPopover state={selectionState} />
+    </div>
+  );
+}
+
+function AnnotationHistory({ annotations }: { annotations: ConversationAnnotation[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8, paddingTop: 8, borderTop: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--accent)", fontSize: 10, fontWeight: 700, letterSpacing: "0.02em", textTransform: "uppercase" }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+        批注上下文
+      </div>
+      {annotations.map((annotation, index) => (
+        <div key={annotation.id} style={{ padding: "7px 8px", borderLeft: "2px solid color-mix(in srgb, var(--accent) 62%, transparent)", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 6%, transparent)" }}>
+          <div style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 600, marginBottom: 4 }}>引用 {index + 1}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{annotation.quote}</div>
+          {annotation.comment && <div style={{ marginTop: 5, color: "var(--text)", fontSize: 12, lineHeight: 1.45 }}><span style={{ color: "var(--text-dim)", marginRight: 4 }}>评论：</span>{annotation.comment}</div>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -324,6 +363,7 @@ function AssistantMessageView({
   onFork,
   forking,
   processDetails,
+  onAddAnnotation,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -338,6 +378,7 @@ function AssistantMessageView({
   onFork?: (entryId: string) => void;
   forking?: boolean;
   processDetails?: boolean;
+  onAddAnnotation?: (annotation: ConversationAnnotation) => void;
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
@@ -353,6 +394,12 @@ function AssistantMessageView({
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
+  const selectionState = useMessageSelectionState(
+    useCallback((quote: string, comment: string) => {
+      onAddAnnotation?.(createConversationAnnotation({ quote, comment, sourceRole: "assistant", sourceEntryId: entryId }));
+    }, [entryId, onAddAnnotation]),
+    !onAddAnnotation || !!isStreaming || !!processDetails,
+  );
 
   // Streaming-based timing for thinking blocks
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
@@ -454,6 +501,7 @@ function AssistantMessageView({
 
   return (
     <div
+      ref={selectionState.rootRef}
       className={processDetails ? "process-message" : undefined}
       style={{ marginBottom: processDetails ? 0 : 16 }}
       onMouseEnter={() => setHovered(true)}
@@ -612,6 +660,7 @@ function AssistantMessageView({
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
       </div>
+      <MessageSelectionPopover state={selectionState} />
     </div>
   );
 }

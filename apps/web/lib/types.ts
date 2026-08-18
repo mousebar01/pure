@@ -298,6 +298,12 @@ export interface SessionInfo {
   projectRoot?: string;
   /** Branch name when cwd is a linked git worktree (not the main checkout) */
   worktreeBranch?: string;
+  /** App-owned archive metadata; omitted for active session-list responses. */
+  archived?: boolean;
+  archivedAt?: string;
+  /** App-owned workspace visibility metadata; hidden workspaces remain fully accessible. */
+  workspaceHidden?: boolean;
+  workspaceHiddenAt?: string;
 }
 
 export interface SessionContext {

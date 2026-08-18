@@ -10,6 +10,7 @@ import {
   buildSessionContext,
   readSessionHeader,
 } from "@/lib/session-reader";
+import { removeSessionArchiveRecord } from "@/lib/session-archive";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 
@@ -243,6 +244,7 @@ export async function DELETE(
 
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
+    removeSessionArchiveRecord(id);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });

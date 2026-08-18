@@ -9,12 +9,14 @@ import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { MobileDevicesConfig } from "./MobileDevicesConfig";
-import { Check, Moon, Plug, Smartphone, Sun, X } from "lucide-react";
+import { ArchivedSessionsConfig } from "./ArchivedSessionsConfig";
+import { HiddenWorkspacesConfig } from "./HiddenWorkspacesConfig";
+import { Archive, Check, EyeOff, Moon, Plug, Smartphone, Sun, X } from "lucide-react";
 
-type SettingsSection = "general" | "mobile" | "models" | "skills" | "plugins" | "mcp";
+type SettingsSection = "general" | "archives" | "workspaces" | "mobile" | "models" | "skills" | "plugins" | "mcp";
 
 const SECTION_STORAGE_KEY = "pi-settings-section";
-const SECTION_IDS: SettingsSection[] = ["general", "mobile", "models", "skills", "plugins", "mcp"];
+const SECTION_IDS: SettingsSection[] = ["general", "archives", "workspaces", "mobile", "models", "skills", "plugins", "mcp"];
 
 interface Props {
   cwd: string | null;
@@ -23,6 +25,8 @@ interface Props {
   onModelsRefresh: () => void;
   onPluginsReloaded: () => void;
   onAgentConfigureMcp: (serverName?: string) => void;
+  onSessionDeleted?: (sessionId: string) => void;
+  onSessionsChanged?: () => void;
 }
 
 function SectionIcon({ section }: { section: SettingsSection }) {
@@ -44,6 +48,10 @@ function SectionIcon({ section }: { section: SettingsSection }) {
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       );
+    case "archives":
+      return <Archive {...common} />;
+    case "workspaces":
+      return <EyeOff {...common} />;
     case "models":
       return (
         <svg {...common}>
@@ -78,7 +86,7 @@ function SectionIcon({ section }: { section: SettingsSection }) {
   }
 }
 
-export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPluginsReloaded, onAgentConfigureMcp }: Props) {
+export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPluginsReloaded, onAgentConfigureMcp, onSessionDeleted, onSessionsChanged }: Props) {
   const { t, locale, setLocale, supportedLocales } = useI18n();
   const { isDark, toggleTheme } = useTheme();
   const isMobile = useIsMobile();
@@ -120,6 +128,8 @@ export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPlug
   const labelFor = (id: SettingsSection): string => {
     switch (id) {
       case "general": return t("common.general");
+      case "archives": return t("common.archived");
+      case "workspaces": return t("common.hiddenWorkspaces");
       case "models": return t("common.models");
       case "mobile": return t("common.mobileDevices");
       case "skills": return t("common.skills");
@@ -224,6 +234,10 @@ export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPlug
                 </section>
               </div>
             )}
+
+            {section === "archives" && <ArchivedSessionsConfig onSessionDeleted={onSessionDeleted} onSessionsChanged={onSessionsChanged} />}
+
+            {section === "workspaces" && <HiddenWorkspacesConfig onChanged={onSessionsChanged} />}
 
             {section === "models" && (
               <ModelsConfig embedded onClose={handleClose} />

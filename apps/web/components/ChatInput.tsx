@@ -2,6 +2,8 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { ConversationAnnotation } from "@/lib/conversation-annotations";
+import { serializeAnnotatedMessage } from "@/lib/conversation-annotations";
 import type { SkillsResponse } from "@/lib/api-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
@@ -13,6 +15,7 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
+import { Check, MessageSquareQuote, Pencil, X } from "lucide-react";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
@@ -76,6 +79,7 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  addAnnotation: (annotation: ConversationAnnotation) => void;
 }
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
@@ -249,6 +253,96 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
+function AnnotationDraftCard({
+  annotation,
+  index,
+  onUpdate,
+  onRemove,
+}: {
+  annotation: ConversationAnnotation;
+  index: number;
+  onUpdate: (id: string, comment: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [comment, setComment] = useState(annotation.comment);
+
+  const save = () => {
+    onUpdate(annotation.id, comment.trim());
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, padding: "9px 10px", borderTop: index === 0 ? "none" : "1px solid color-mix(in srgb, var(--border) 72%, transparent)" }}>
+      <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 7, background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", fontSize: 11, fontWeight: 700 }}>{index + 1}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, color: "var(--text-dim)", fontSize: 10, fontWeight: 600 }}>
+          <MessageSquareQuote size={12} strokeWidth={1.8} />
+          引用片段
+        </div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {annotation.quote}
+        </div>
+        {editing ? (
+          <div style={{ marginTop: 7 }}>
+            <textarea
+              autoFocus
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              rows={2}
+              placeholder="补充评论（可留空，仅引用这段内容）"
+              style={{ width: "100%", minHeight: 48, resize: "vertical", padding: "6px 7px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 12, lineHeight: 1.4 }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") { event.preventDefault(); setEditing(false); }
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 5, marginTop: 5 }}>
+              <button type="button" onClick={() => setEditing(false)} style={{ height: 24, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>取消</button>
+              <button type="button" onClick={save} style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 24, padding: "0 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}><Check size={12} />保存</button>
+            </div>
+          </div>
+        ) : annotation.comment ? (
+          <div style={{ marginTop: 5, color: "var(--text)", fontSize: 12, lineHeight: 1.4 }}><span style={{ color: "var(--text-dim)", marginRight: 4 }}>评论：</span>{annotation.comment}</div>
+        ) : (
+          <div style={{ marginTop: 5, color: "var(--text-dim)", fontSize: 11 }}>仅引用，未添加文字评论</div>
+        )}
+      </div>
+      {!editing && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+          <button type="button" aria-label="Edit comment" title="编辑评论" onClick={() => setEditing(true)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, border: 0, borderRadius: 5, background: "transparent", color: "var(--text-dim)", cursor: "pointer" }}><Pencil size={12} /></button>
+          <button type="button" aria-label="Remove annotation" title="删除批注" onClick={() => onRemove(annotation.id)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, border: 0, borderRadius: 5, background: "transparent", color: "var(--text-dim)", cursor: "pointer" }}><X size={14} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnnotationDraftShelf({
+  annotations,
+  onUpdate,
+  onRemove,
+}: {
+  annotations: ConversationAnnotation[];
+  onUpdate: (id: string, comment: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  if (annotations.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 8, border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))", borderRadius: 10, background: "color-mix(in srgb, var(--accent) 4%, var(--bg-panel))", overflow: "hidden", boxShadow: "0 4px 16px rgba(37,99,235,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 10px", borderBottom: "1px solid color-mix(in srgb, var(--accent) 15%, var(--border))" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--accent)", fontSize: 11, fontWeight: 700 }}>
+          <MessageSquareQuote size={14} strokeWidth={1.9} />
+          待发送批注
+          <span style={{ minWidth: 17, height: 17, padding: "0 5px", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", fontSize: 10 }}>{annotations.length}</span>
+        </div>
+        <span style={{ color: "var(--text-dim)", fontSize: 10 }}>发送时一起提交</span>
+      </div>
+      {annotations.map((annotation, index) => <AnnotationDraftCard key={annotation.id} annotation={annotation} index={index} onUpdate={onUpdate} onRemove={onRemove} />)}
+    </div>
+  );
+}
+
 function ModelNoticeBanner({ tone, title, body }: { tone: "error" | "warning"; title: string; body: string }) {
   const color = tone === "error" ? "239,68,68" : "234,179,8";
   return (
@@ -335,6 +429,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  const [annotations, setAnnotations] = useState<ConversationAnnotation[]>(() => (
+    draftKey ? getDraft(draftKey)?.annotations ?? [] : []
+  ));
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
@@ -375,9 +472,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const annotationsRef = useRef(annotations);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  annotationsRef.current = annotations;
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -435,6 +534,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    addAnnotation(annotation: ConversationAnnotation) {
+      setAnnotations((prev) => [...prev, annotation]);
+      requestAnimationFrame(() => textareaRef.current?.focus());
     },
   }));
 
@@ -494,6 +597,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const clearInput = useCallback(() => {
     setValue("");
+    setAnnotations([]);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
@@ -509,8 +613,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      annotations,
     });
-  }, [attachedImages, draftKey, value]);
+  }, [annotations, attachedImages, draftKey, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -520,6 +625,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        annotations: annotationsRef.current,
       });
     }
 
@@ -528,6 +634,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setValue(draft?.value ?? "");
     setAtQuery(null);
     setHistoryMenuOpen(false);
+    setAnnotations(draft?.annotations ?? []);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
       return draftImagesToAttachedImages(draft?.images);
@@ -549,19 +656,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    if (!msg && !attachedImages.length && !annotations.length) return;
     if (isStreaming) return;
     onAudioUnlock?.();
-    if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
+    if (!attachedImages.length && annotations.length === 0 && msg.startsWith("/") && onBuiltinCommand) {
       const result = await onBuiltinCommand(msg);
       if (result.handled) {
         if (!result.error) clearInput();
         return;
       }
     }
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
+    onSend(serializeAnnotatedMessage(msg, annotations), attachedImages.length ? attachedImages : undefined);
     clearInput();
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, annotations, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -592,7 +699,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
-  const hasInputText = Boolean(value.trim());
+  const hasInputText = Boolean(value.trim()) || annotations.length > 0;
   const canQueueStreamingMessage = hasInputText && attachedImages.length === 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
@@ -779,22 +886,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    if (!msg && !attachedImages.length && !annotations.length) return;
     if (attachedImages.length) return;
     onAudioUnlock?.();
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
-    if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
+    const serializedMessage = serializeAnnotatedMessage(msg, annotations);
+    if (msg.startsWith("/") && annotations.length === 0 && onPromptWithStreamingBehavior) {
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
       clearInput();
       return;
     }
     if (mode === "steer" && onSteer) {
-      onSteer(msg, attachedImages.length ? attachedImages : undefined);
+      onSteer(serializedMessage, attachedImages.length ? attachedImages : undefined);
     } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
+      onFollowUp(serializedMessage, attachedImages.length ? attachedImages : undefined);
     }
     clearInput();
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, annotations, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1205,6 +1313,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             ))}
           </div>
         )}
+        <AnnotationDraftShelf
+          annotations={annotations}
+          onUpdate={(id, comment) => setAnnotations((prev) => prev.map((annotation) => annotation.id === id ? { ...annotation, comment } : annotation))}
+          onRemove={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}
+        />
         {/* Retry banner */}
         {retryInfo && (
           <div style={{
@@ -1731,21 +1844,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={!value.trim() && !attachedImages.length && !annotations.length}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                background: (value.trim() || attachedImages.length || annotations.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                color: (value.trim() || attachedImages.length || annotations.length) ? "#fff" : "var(--text-dim)",
+                cursor: (value.trim() || attachedImages.length || annotations.length) ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: (value.trim() || attachedImages.length || annotations.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >

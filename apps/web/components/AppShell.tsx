@@ -336,9 +336,9 @@ export function AppShell() {
     setInitialSessionRestored(true);
   }, []);
 
-  const handleSessionDeleted = useCallback((sessionId: string) => {
+  const handleSessionDeleted = useCallback((sessionId: string, affectedSessionIds: string[] = [sessionId]) => {
     setRefreshKey((k) => k + 1);
-    if (selectedSession?.id === sessionId) {
+    if (selectedSession && affectedSessionIds.includes(selectedSession.id)) {
       const cwd = selectedSession.cwd;
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
@@ -486,7 +486,7 @@ export function AppShell() {
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
-        onSessionDeleted={handleSessionDeleted}
+        onSessionArchived={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
@@ -948,6 +948,8 @@ export function AppShell() {
         onModelsRefresh={() => setModelsRefreshKey((k) => k + 1)}
         onPluginsReloaded={() => setSessionKey((k) => k + 1)}
         onAgentConfigureMcp={handleAgentConfigureMcp}
+        onSessionDeleted={handleSessionDeleted}
+        onSessionsChanged={() => setRefreshKey((k) => k + 1)}
       />
     )}
     {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
