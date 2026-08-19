@@ -20,7 +20,6 @@
 | [ci.md](ci.md) | CI 现状与建议：现有 Web 检查、可选项 | 维护仓库/提 PR 前想确认门禁的人 |
 | [release.md](release.md) | 两个发布渠道：Web 源码、移动端 EAS | 要发版的人 |
 | [cheatsheet.md](cheatsheet.md) | CI/CD/版本号/Release 一页纸速查（面向新手） | 还不熟工程流程的人，先看这篇 |
-| [confirmed-product-plan.md](confirmed-product-plan.md) | 已确认的批注、归档、移动连接、访问凭据、网络与部署边界及实施顺序 | 接手本轮产品改造的开发者或 Agent |
 
 ## 一张图
 
