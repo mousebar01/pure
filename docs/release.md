@@ -22,10 +22,10 @@ npm run dev        # 开发模式 → http://127.0.0.1:30001
 npm run build && npm start   # 生产模式
 ```
 
-需要给局域网用（例如配合移动端）时：
+需要给局域网或私有组网使用时，在“设置 → 移动设备”选择访问范围并点击“保存并重启”。服务器部署使用 HTTPS，并通过服务管理器注入 Secret 文件：
 
 ```bash
-PURE_PASSWORD='足够长的随机密码' npm run start:lan
+PURE_USERNAME=operator PURE_PASSWORD_FILE=/run/secrets/pure-password npm start
 ```
 
 > 打 `v*` 标签目前不触发任何发布工作流（`release.yml` 已移除）；tag 仅作版本标记，将来若要自动发 Release 需另配工作流。

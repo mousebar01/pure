@@ -5,7 +5,6 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -23,10 +22,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
+import * as Network from "expo-network";
 import NetInfo from "@react-native-community/netinfo";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { connectionErrorMessage, PiApi, normalizedServerUrl } from "./src/api";
+import { connectionErrorMessage, normalizeServerUrl, PiApi } from "./src/api";
 import { draftStorageKey, loadDraft, saveDraft } from "./src/draft-store";
 import { readCachedDetail, readCachedSessions, writeCachedDetail, writeCachedSessions } from "./src/session-cache";
 import { MessageView, ProcessDetailsGroup } from "./src/MessageView";
@@ -35,6 +34,7 @@ import { WebAlignedIcon } from "./src/WebAlignedIcon";
 import { clearConnection, loadConnection, loadConnections, loadPreferences, loadTheme, saveConnection, savePreferences, saveTheme, selectConnection } from "./src/storage";
 import { colors, mono, setActiveTheme, type ThemeMode } from "./src/theme";
 import { CONNECTED_SYNC_INTERVAL_MS, reconnectDelayMs } from "./src/reconnect";
+import { discoverLocalPureServers, isPrivateIpv4, type DiscoveredPureServer } from "./src/discovery";
 import { IDLE_RUN_STATE, applyRunEvent, beginPromptRun as markPromptPending, type MobileRunState } from "./src/run-state";
 import type { AgentEvent, AgentMessage, ConnectionConfig, DirectoryEntry, MobileDeviceInfo, MobilePreferences, ModelInfo, SessionDetail, SessionInfo, ToolPreset, WorktreeInfo, WorktreesResponse } from "./src/types";
 
@@ -96,17 +96,7 @@ function AppContent() {
       setThemeMode(storedTheme);
     });
     void loadPreferences().then(setPreferences);
-    loadConnection().then(async (stored) => {
-      if (!stored?.password || stored.token) { setConfig(stored); return; }
-      try {
-        const pairing = await new PiApi(stored).pairDevice(Platform.OS === "ios" ? "iPhone / iPad" : "Android device");
-        const migrated = { serverUrl: stored.serverUrl, token: pairing.token, deviceId: pairing.device.id };
-        await saveConnection(migrated);
-        setConfig(migrated);
-      } catch {
-        setConfig(stored);
-      }
-    }).finally(() => setBooting(false));
+    loadConnection().then(setConfig).finally(() => setBooting(false));
   }, []);
 
   const refreshSessions = useCallback(async () => {
@@ -301,23 +291,25 @@ function AppContent() {
 
 function ConnectScreen({ onConnected }: { onConnected: (config: ConnectionConfig) => void }) {
   const [serverUrl, setServerUrl] = useState("http://192.168.1.100:30001");
+  const [username, setUsername] = useState("pi");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [profiles, setProfiles] = useState<ConnectionConfig[]>([]);
-  const [scannerOpen, setScannerOpen] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredServers, setDiscoveredServers] = useState<DiscoveredPureServer[]>([]);
 
   useEffect(() => { void loadConnections().then((stored) => setProfiles(stored.profiles)); }, []);
 
   const connect = async () => {
     setBusy(true);
     setError("");
-    const next = { serverUrl: normalizedServerUrl(serverUrl), password };
+    const next = { serverUrl: normalizeServerUrl(serverUrl), username: username.trim() || "pi", password };
     try {
       const bootstrapApi = new PiApi(next);
       await bootstrapApi.health();
-      const pairing = await bootstrapApi.pairDevice(Platform.OS === "ios" ? "iPhone / iPad" : "Android device");
-      const paired = { serverUrl: next.serverUrl, token: pairing.token, deviceId: pairing.device.id };
+      const registration = await bootstrapApi.registerDevice(Platform.OS === "ios" ? "iPhone / iPad" : "Android device");
+      const paired = { serverUrl: next.serverUrl, token: registration.token, deviceId: registration.device.id };
       await saveConnection(paired);
       onConnected(paired);
     } catch (cause) {
@@ -327,20 +319,51 @@ function ConnectScreen({ onConnected }: { onConnected: (config: ConnectionConfig
     }
   };
 
+  const discover = async () => {
+    if (discovering) return;
+    setDiscovering(true);
+    setError("");
+    try {
+      const ip = await Network.getIpAddressAsync();
+      if (!isPrivateIpv4(ip)) {
+        throw new Error("当前网络没有可扫描的局域网地址。请连接与电脑相同的 Wi-Fi，或手动输入服务器地址。");
+      }
+      const found = await discoverLocalPureServers(ip);
+      setDiscoveredServers(found);
+      if (found.length === 0) setError("没有发现局域网中的 Pure。请确认电脑已启动，并允许 30001 端口通过防火墙。");
+    } catch (cause) {
+      setError(connectionErrorMessage(cause));
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.connectPage} edges={["top", "bottom"]}>
       <Text style={styles.connectLogo}>Pi</Text>
       <Text style={styles.connectTitle}>连接 pure</Text>
       <Text style={styles.connectLead}>使用电脑上的服务地址继续工作</Text>
       <View style={styles.form}>
-        <Pressable onPress={() => setScannerOpen(true)} style={({ pressed }) => [styles.scanButton, pressed && styles.buttonPressed]}>
-          <Ionicons name="scan-outline" color={colors.ink} size={19} /><Text style={styles.scanButtonText}>扫描电脑上的二维码</Text>
+        <Pressable disabled={discovering} onPress={() => void discover()} style={({ pressed }) => [styles.discoveryButton, (pressed || discovering) && styles.buttonPressed]}>
+          {discovering ? <ActivityIndicator color={colors.accent} /> : <Ionicons name="wifi-outline" color={colors.accent} size={19} />}
+          <Text style={styles.discoveryButtonText}>{discovering ? "正在查找局域网电脑" : "查找局域网电脑"}</Text>
         </Pressable>
+        {discoveredServers.length > 0 && <View style={styles.discoveredServers}>
+          <Text style={styles.discoveredServersTitle}>附近的 Pure</Text>
+          {discoveredServers.map((server) => <Pressable key={server.serverUrl} onPress={() => { setServerUrl(server.serverUrl); setError(""); }} style={({ pressed }) => [styles.discoveredServerRow, pressed && styles.topBarButtonPressed]}>
+            <View style={styles.savedProfileIcon}><Ionicons name="desktop-outline" size={17} color={colors.muted} /></View>
+            <View style={styles.savedProfileCopy}><Text style={styles.savedProfileName}>{server.name}</Text><Text style={styles.savedProfileUrl}>{server.serverUrl}</Text></View>
+            <Ionicons name={server.serverUrl === normalizeServerUrl(serverUrl) ? "checkmark-circle" : "arrow-forward-circle-outline"} size={19} color={server.serverUrl === normalizeServerUrl(serverUrl) ? colors.accent : colors.faint} />
+          </Pressable>)}
+          <Text style={styles.discoveredServersHint}>选择后输入访问账号和密码即可连接。</Text>
+        </View>}
         <View style={styles.connectDivider}><View style={styles.connectDividerLine} /><Text style={styles.connectDividerText}>或手动连接</Text><View style={styles.connectDividerLine} /></View>
         <Text style={styles.label}>服务器地址</Text>
         <TextInput autoCapitalize="none" autoCorrect={false} keyboardType="url" value={serverUrl} onChangeText={setServerUrl} style={styles.input} placeholderTextColor={colors.faint} />
+        <Text style={styles.label}>访问账号</Text>
+        <TextInput autoCapitalize="none" autoCorrect={false} value={username} onChangeText={setUsername} style={styles.input} placeholder="pi" placeholderTextColor={colors.faint} />
         <Text style={styles.label}>访问密码</Text>
-        <TextInput secureTextEntry value={password} onChangeText={setPassword} style={styles.input} placeholder="PURE_PASSWORD" placeholderTextColor={colors.faint} />
+        <TextInput secureTextEntry value={password} onChangeText={setPassword} style={styles.input} placeholder="访问密码" placeholderTextColor={colors.faint} />
         {Boolean(error) && <Text style={styles.error}>{error}</Text>}
         <Pressable disabled={busy || !serverUrl.trim()} onPress={connect} style={({ pressed }) => [styles.primaryButton, (pressed || busy) && styles.buttonPressed]}>
           {busy ? <ActivityIndicator color="#fff" /> : <><Text style={styles.primaryButtonText}>连接</Text><Ionicons name="arrow-forward" color="#fff" size={17} /></>}
@@ -360,71 +383,8 @@ function ConnectScreen({ onConnected }: { onConnected: (config: ConnectionConfig
         </Pressable>)}
       </View>}
       <Text style={styles.securityNote}>HTTP 仅用于可信局域网。远程访问请使用 HTTPS 或受信 VPN。</Text>
-      <PairingScanner visible={scannerOpen} onClose={() => setScannerOpen(false)} onConnected={onConnected} />
     </SafeAreaView>
   );
-}
-
-function PairingScanner({ visible, onClose, onConnected }: { visible: boolean; onClose: () => void; onConnected: (config: ConnectionConfig) => void }) {
-  const [permission, requestPermission] = useCameraPermissions();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const permissionBlocked = permission?.granted === false && permission.canAskAgain === false;
-
-  useEffect(() => {
-    if (visible && permission?.status === "undetermined") {
-      void requestPermission();
-    }
-  }, [permission?.status, requestPermission, visible]);
-
-  const requestCameraAccess = () => {
-    if (permissionBlocked) {
-      void Linking.openSettings();
-      return;
-    }
-    void requestPermission();
-  };
-
-  const scan = async ({ data }: BarcodeScanningResult) => {
-    if (busy) return;
-    setBusy(true); setError("");
-    try {
-      const payload = new URL(data);
-      if (payload.protocol !== "pure-mobile:" || payload.hostname !== "pair") throw new Error("这不是 Pure Mobile 配对二维码。");
-      const serverUrl = payload.searchParams.get("server");
-      const id = payload.searchParams.get("id");
-      const secret = payload.searchParams.get("secret");
-      if (!serverUrl || !id || !secret) throw new Error("二维码缺少配对信息，请在电脑上刷新后重试。");
-      const api = new PiApi({ serverUrl });
-      const pairing = await api.redeemPairing(id, secret, Platform.OS === "ios" ? "iPhone / iPad" : "Android device");
-      const hostname = new URL(serverUrl).hostname;
-      const paired: ConnectionConfig = { serverUrl, name: hostname, token: pairing.token, deviceId: pairing.device.id };
-      const pairedApi = new PiApi(paired);
-      try {
-        await pairedApi.health();
-      } catch (cause) {
-        await pairedApi.revokeCurrentDevice().catch(() => {});
-        throw cause;
-      }
-      await saveConnection(paired);
-      onClose();
-      onConnected((await loadConnection()) || paired);
-    } catch (cause) {
-      setError(connectionErrorMessage(cause));
-      setBusy(false);
-    }
-  };
-
-  return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-    <SafeAreaView style={styles.scannerPage} edges={["top", "bottom"]}>
-      <View style={styles.scannerHeader}><Pressable accessibilityLabel="关闭扫码" onPress={onClose} style={styles.topBarButton}><Ionicons name="close" size={22} color={colors.ink} /></Pressable><Text style={styles.scannerTitle}>扫描配对二维码</Text><View style={styles.topBarButton} /></View>
-      <View style={styles.scannerViewport}>
-        {permission?.granted ? <CameraView style={StyleSheet.absoluteFill} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={busy ? undefined : scan} /> : <View style={styles.scannerPermission}><Ionicons name="camera-outline" size={28} color={colors.muted} /><Text style={styles.scannerPermissionText}>{permissionBlocked ? "相机权限已关闭，请在系统设置中开启" : "需要相机权限才能扫描二维码"}</Text><Pressable onPress={requestCameraAccess} style={styles.primaryButton}><Text style={styles.primaryButtonText}>{permissionBlocked ? "打开系统设置" : "允许使用相机"}</Text></Pressable></View>}
-        {permission?.granted && <View pointerEvents="none" style={styles.scanFrame}><View style={styles.scanCornerTL} /><View style={styles.scanCornerTR} /><View style={styles.scanCornerBL} /><View style={styles.scanCornerBR} /></View>}
-      </View>
-      <View style={styles.scannerFooter}>{busy ? <><ActivityIndicator color={colors.accent} /><Text style={styles.scannerHint}>正在验证并连接</Text></> : <Text style={styles.scannerHint}>{error || "将电脑上的二维码放入框内"}</Text>}</View>
-    </SafeAreaView>
-  </Modal>;
 }
 
 function CompactTopBar({ running, themeMode, onToggleTheme, onMenu, onSessionInfo }: { running: boolean; themeMode: ThemeMode; onToggleTheme: () => void; onMenu: () => void; onSessionInfo: () => void }) {
@@ -791,7 +751,7 @@ function ConnectionSettings({ visible, api, deviceId, themeMode, preferences, on
             {loading ? <ActivityIndicator color={colors.accent} /> : device ? (
               <View style={styles.deviceRow}>
                 <View style={styles.deviceIcon}><Ionicons name="phone-portrait-outline" size={18} color={colors.muted} /></View>
-                <View style={styles.deviceCopy}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.deviceMeta}>配对于 {new Date(device.createdAt).toLocaleDateString("zh-CN")} · {device.id === deviceId ? "本机" : "已验证"}</Text></View>
+                <View style={styles.deviceCopy}><Text style={styles.deviceName}>{device.name}</Text><Text style={styles.deviceMeta}>授权于 {new Date(device.createdAt).toLocaleDateString("zh-CN")} · {device.id === deviceId ? "本机" : "已验证"}</Text></View>
               </View>
             ) : <Text style={styles.settingsError}>{loadError || "无法读取设备信息"}</Text>}
             <Pressable disabled={revoking || !device} onPress={revoke} style={[styles.dangerButton, (revoking || !device) && styles.sendDisabled]}>{revoking ? <ActivityIndicator color={colors.danger} /> : <><Ionicons name="log-out-outline" size={17} color={colors.danger} /><Text style={styles.dangerButtonText}>吊销本机访问并断开</Text></>}</Pressable>
@@ -1417,8 +1377,12 @@ function createStyles() {
   connectTitle: { color: colors.ink, fontSize: 26, fontWeight: "700" },
   connectLead: { color: colors.muted, fontSize: 14, marginTop: 7, marginBottom: 30 },
   form: { gap: 9 },
-  scanButton: { height: 48, borderWidth: 1, borderColor: colors.line, borderRadius: 6, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
-  scanButtonText: { color: colors.ink, fontSize: 14, fontWeight: "600" },
+  discoveryButton: { minHeight: 42, borderWidth: 1, borderColor: colors.line, borderRadius: 6, backgroundColor: colors.canvas, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  discoveryButtonText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
+  discoveredServers: { marginTop: 3, borderTopWidth: 1, borderTopColor: colors.line, borderBottomWidth: 1, borderBottomColor: colors.line },
+  discoveredServersTitle: { color: colors.faint, fontSize: 11, fontWeight: "600", marginTop: 10, marginBottom: 2 },
+  discoveredServerRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: colors.line },
+  discoveredServersHint: { color: colors.faint, fontSize: 10, lineHeight: 16, paddingVertical: 9 },
   connectDivider: { height: 30, flexDirection: "row", alignItems: "center", gap: 10 },
   connectDividerLine: { flex: 1, height: 1, backgroundColor: colors.line },
   connectDividerText: { color: colors.faint, fontSize: 11 },
@@ -1436,19 +1400,6 @@ function createStyles() {
   savedProfileCopy: { flex: 1, minWidth: 0 },
   savedProfileName: { color: colors.ink, fontSize: 13, fontWeight: "600" },
   savedProfileUrl: { color: colors.faint, fontFamily: mono, fontSize: 10, marginTop: 3 },
-  scannerPage: { flex: 1, backgroundColor: colors.canvas },
-  scannerHeader: { height: 52, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: colors.line, backgroundColor: colors.surface },
-  scannerTitle: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: "600", textAlign: "center" },
-  scannerViewport: { flex: 1, position: "relative", overflow: "hidden", backgroundColor: "#111" },
-  scannerPermission: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 28 },
-  scannerPermissionText: { color: colors.muted, fontSize: 13, textAlign: "center" },
-  scanFrame: { position: "absolute", width: 240, height: 240, left: "50%", top: "50%", marginLeft: -120, marginTop: -120 },
-  scanCornerTL: { position: "absolute", left: 0, top: 0, width: 30, height: 30, borderLeftWidth: 3, borderTopWidth: 3, borderColor: "#fff" },
-  scanCornerTR: { position: "absolute", right: 0, top: 0, width: 30, height: 30, borderRightWidth: 3, borderTopWidth: 3, borderColor: "#fff" },
-  scanCornerBL: { position: "absolute", left: 0, bottom: 0, width: 30, height: 30, borderLeftWidth: 3, borderBottomWidth: 3, borderColor: "#fff" },
-  scanCornerBR: { position: "absolute", right: 0, bottom: 0, width: 30, height: 30, borderRightWidth: 3, borderBottomWidth: 3, borderColor: "#fff" },
-  scannerFooter: { minHeight: 84, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 24, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line },
-  scannerHint: { color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: "center" },
   drawerLayer: { flex: 1, flexDirection: "row" },
   drawerBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.4)" },
   drawer: { width: 280, height: "100%", backgroundColor: colors.panel, borderRightWidth: 1, borderRightColor: colors.line, paddingHorizontal: 10 },

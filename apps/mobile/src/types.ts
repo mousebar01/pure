@@ -62,6 +62,7 @@ export interface ConnectionConfig {
   profileId?: string;
   name?: string;
   serverUrl: string;
+  username?: string;
   password?: string;
   token?: string;
   deviceId?: string;

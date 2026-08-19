@@ -9,14 +9,12 @@ function pluginOptions(name) {
   return entry?.[1];
 }
 
-test("native config keeps camera permission available for QR pairing", () => {
+test("native config does not request camera access for device registration", () => {
   const imagePicker = pluginOptions("expo-image-picker");
   const camera = pluginOptions("expo-camera");
 
-  assert.notEqual(imagePicker?.cameraPermission, false);
-  assert.match(imagePicker?.cameraPermission ?? "", /扫描.*二维码/);
-  assert.match(camera?.cameraPermission ?? "", /扫描.*二维码/);
-  assert.equal(camera?.recordAudioAndroid, false);
+  assert.equal(imagePicker?.cameraPermission, undefined);
+  assert.equal(camera, undefined);
   assert.deepEqual(appConfig.android.blockedPermissions, ["android.permission.RECORD_AUDIO"]);
 });
 

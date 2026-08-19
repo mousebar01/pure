@@ -1,26 +1,55 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { getEffectiveUsername, readExternalPassword, readPureConfig } from "./pure-config";
 
-export const PURE_AUTH_USERNAME = "pi";
-
-function hashSecret(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
-}
+export const DEFAULT_WEB_AUTH_USERNAME = "pi";
 
 function secretsEqual(actual: string, expected: string): boolean {
-  return timingSafeEqual(hashSecret(actual), hashSecret(expected));
+  const actualBytes = Buffer.from(actual, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const length = Math.max(actualBytes.length, expectedBytes.length);
+  let difference = actualBytes.length ^ expectedBytes.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |= (actualBytes[index] ?? 0) ^ (expectedBytes[index] ?? 0);
+  }
+  return difference === 0;
 }
 
-export function isWebPasswordEnabled(
-  password: string | undefined = process.env.PURE_PASSWORD,
-): password is string {
-  return typeof password === "string" && password.length > 0;
+type WebAuthCredential =
+  { source: "config" | "environment"; username: string; value: string };
+
+function configuredCredential(): WebAuthCredential | null {
+  const config = readPureConfig();
+  const externalPassword = readExternalPassword();
+  if (externalPassword !== null) {
+    return { source: "environment", username: getEffectiveUsername(config), value: externalPassword };
+  }
+  if (!config) return null;
+  if (!config.auth.password) return null;
+  return { source: process.env.PURE_USERNAME ? "environment" : "config", username: getEffectiveUsername(config), value: config.auth.password };
+}
+
+export function isWebPasswordEnabled(password?: string): boolean {
+  if (arguments.length > 0) return typeof password === "string" && password.length > 0;
+  return configuredCredential() !== null;
+}
+
+export function getWebAuthStatus(): { configured: boolean; source: "environment" | "config" | "none"; username: string } {
+  const credential = configuredCredential();
+  return {
+    configured: credential !== null,
+    source: credential?.source ?? "none",
+    username: credential?.username ?? DEFAULT_WEB_AUTH_USERNAME,
+  };
 }
 
 export function isValidBasicAuthorization(
   authorization: string | null,
-  password = process.env.PURE_PASSWORD,
+  password?: string,
+  username?: string,
 ): boolean {
-  if (!isWebPasswordEnabled(password) || !authorization) return false;
+  const credential = arguments.length > 1
+    ? (password ? { username: username || DEFAULT_WEB_AUTH_USERNAME, value: password } : null)
+    : configuredCredential();
+  if (!credential || !authorization) return false;
 
   const match = /^Basic\s+(\S+)$/i.exec(authorization);
   if (!match) return false;
@@ -37,9 +66,9 @@ export function isValidBasicAuthorization(
   const separator = credentials.indexOf(":");
   if (separator === -1) return false;
 
-  const username = credentials.slice(0, separator);
+  const suppliedUsername = credentials.slice(0, separator);
   const suppliedPassword = credentials.slice(separator + 1);
-  const usernameMatches = secretsEqual(username, PURE_AUTH_USERNAME);
-  const passwordMatches = secretsEqual(suppliedPassword, password);
+  const usernameMatches = secretsEqual(suppliedUsername, credential.username);
+  const passwordMatches = secretsEqual(suppliedPassword, credential.value);
   return usernameMatches && passwordMatches;
 }

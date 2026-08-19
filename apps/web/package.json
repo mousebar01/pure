@@ -30,24 +30,20 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "node scripts/run-next.mjs dev 127.0.0.1",
-    "dev:lan": "node scripts/run-next.mjs dev 0.0.0.0",
+    "dev": "node scripts/run-next.mjs dev",
     "typecheck": "tsc --noEmit",
-    "test": "node --test app/api/agent/events-route.test.mjs components/SessionSidebar.test.mjs lib/mobile-device-auth.test.mjs lib/i18n/registry.test.mjs lib/pure-options.test.mjs lib/conversation-annotations.test.mjs",
+    "test": "node --test app/api/agent/events-route.test.mjs components/SessionSidebar.test.mjs lib/mobile-device-auth.test.mjs lib/i18n/registry.test.mjs lib/pure-options.test.mjs lib/pure-config.test.mjs lib/pure-auth.test.mjs lib/pure-restart.test.mjs lib/web-auth.test.mjs lib/conversation-annotations.test.mjs",
     "build": "next build --webpack",
-    "start": "node scripts/run-next.mjs start 127.0.0.1",
-    "start:lan": "node scripts/run-next.mjs start 0.0.0.0"
+    "start": "node scripts/run-next.mjs start"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.1",
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@earendil-works/pi-tui": "0.84.1",
-    "@types/qrcode": "^1.5.6",
     "lucide-react": "^0.562.0",
     "next": "16.3.0",
     "proper-lockfile": "4.1.2",
-    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "undici": "8.10.0"

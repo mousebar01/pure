@@ -7,7 +7,7 @@
 | CLI | 短参 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- | --- | --- |
 | `--port <n>` | `-p` | `PURE_PORT` / `PORT` | `30001` | 监听端口 |
-| `--hostname <h>` | `-H` | `PURE_HOSTNAME` | `127.0.0.1` | 监听地址 |
+| `--hostname <h>` | `-H` | `PURE_HOSTNAME` | 按 `pure-config.json` 的 `network.mode` | 监听地址；CLI/环境变量只用于显式覆盖 |
 | `--no-open` | — | `PURE_NO_OPEN` | 关 | 不自动打开浏览器（`1/true/yes/on` 视为启用） |
 
 `--hostname` 不是回环地址时会打印安全警告（有密码 → 提示用 HTTPS/VPN；无密码 → 提示仅限可信网络）。
@@ -19,7 +19,9 @@
 | `PURE_PORT` / `PORT` | 端口（run-next.mjs 会校验 1-65535） | [development.md](development.md) |
 | `PURE_HOSTNAME` | 监听地址 | [security.md](security.md) |
 | `PURE_NO_OPEN` | 禁用自动开浏览器 | — |
-| `PURE_PASSWORD` | 启用 Basic Auth（用户名固定 `pi`） | [security.md](security.md) |
+| `PURE_USERNAME` | 部署环境提供访问账号；与 `PURE_PASSWORD_FILE` 一起使用 | [security.md](security.md) |
+| `PURE_PASSWORD_FILE` | 从权限受限的 Secret 文件读取访问密码 | [security.md](security.md) |
+| `PURE_CONFIG_PATH` | 自定义 Pure 配置文件路径 | [security.md](security.md) |
 | `PURE_ALLOWED_HOSTS` | 逗号分隔的额外允许 Host（反代场景） | [security.md](security.md) |
 | `PI_CODING_AGENT_DIR` | 指定 pi agent 目录（默认 `~/.pi/agent`） | [session-files.md](session-files.md) |
 | `PI_MOBILE_DEVICES_PATH` | 移动设备注册文件路径（默认 `~/.pi/agent/mobile-devices.json`） | [security.md](security.md) |
@@ -53,7 +55,7 @@ pi 的全局设置（默认模型、默认 thinking 级别、skills 路径、pac
 
 ### mobile-devices.json
 
-移动设备注册表：`{ version: 1, devices: [{ id, name, tokenHash, createdAt }] }`，0600，只存 `sha256(token)`。移动端「密码 → 设备 token」兑换入口是 `POST /api/mobile/devices`（要求已配 `PURE_PASSWORD`）。
+移动设备注册表：`{ version: 1, devices: [{ id, name, tokenHash, createdAt }] }`，0600，只存 `sha256(token)`。移动端首次使用「Basic 账号/密码 → 设备 token」的 `POST /api/mobile/devices`；没有二维码或云端配对流程。
 
 ### 项目信任存储
 

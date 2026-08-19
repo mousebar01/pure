@@ -56,6 +56,14 @@ test("allows IPv6 and an explicitly configured hostname", async () => {
   assert.equal(isApiRequestAllowed(configured, ["pure.internal"]), true);
 });
 
+test("allows Tailscale MagicDNS hostnames", async () => {
+  const { isApiRequestAllowed } = await loadSubject();
+  const request = new Request("http://localhost:30141/api/mobile/discovery", {
+    headers: { host: "pure.tailnet.ts.net:30141" },
+  });
+  assert.equal(isApiRequestAllowed(request), true);
+});
+
 test("rejects cross-origin browser API requests", async () => {
   const { isApiRequestAllowed, shouldCheckApiRequestOrigin } = await loadSubject();
   const post = new Request("http://localhost:30141/api/test", {

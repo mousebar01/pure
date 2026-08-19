@@ -11,10 +11,11 @@ test("normalizes mobile server addresses", async () => {
   assert.equal(normalizeServerUrl("https://pi.example.test///"), "https://pi.example.test");
 });
 
-test("prefers a device bearer token and retains basic auth for initial pairing", async () => {
+test("prefers a device bearer token and uses basic auth for first login", async () => {
   const { buildAuthorizationHeader } = await subject();
   assert.equal(buildAuthorizationHeader({ serverUrl: "http://host", token: "pim_token", password: "old" }), "Bearer pim_token");
   assert.equal(buildAuthorizationHeader({ serverUrl: "http://host", password: "friend1799" }), `Basic ${Buffer.from("pi:friend1799").toString("base64")}`);
+  assert.equal(buildAuthorizationHeader({ serverUrl: "http://host", username: "operator", password: "friend1799" }), `Basic ${Buffer.from("operator:friend1799").toString("base64")}`);
   assert.equal(buildAuthorizationHeader({ serverUrl: "http://host" }), null);
 });
 

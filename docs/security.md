@@ -1,6 +1,6 @@
 # 安全模型
 
-pure 默认只监听 `127.0.0.1`，但它能调用高权限的智能体、读写文件、执行 git 操作，所以一旦开放到网络，安全边界就变得关键。整个模型分三层，按请求经过顺序：
+pure 能调用高权限的智能体、读写文件、执行 git 操作，所以一旦开放到网络，安全边界就变得关键。默认配置仅本机监听；用户设置访问密码后，才应切换到局域网或可信虚拟网络。整个模型分三层，按请求经过顺序：
 
 ```
 proxy.ts（Next 中间件）
@@ -36,9 +36,10 @@ proxy.ts（Next 中间件）
 
 实现：`apps/web/lib/web-auth.ts`。
 
-`PURE_PASSWORD` 非空时启用 HTTP Basic Auth：
+设置访问密码后，服务使用配置文件中的 HTTP Basic Auth；首次启动的配置没有随机密码，默认仅本机监听。部署时可由 `PURE_USERNAME` 与 `PURE_PASSWORD_FILE` 提供账号和密码：
 
-- 用户名固定为 `pi`（`PURE_AUTH_USERNAME`）
+- 用户名保存为配置字段，默认是 `pi`；部署环境中的 `PURE_USERNAME` 会覆盖配置中的账号
+- 本地配置以 `0600` 权限保存访问密码，设置页可以回显密码；不要把配置文件放入共享目录、镜像或公开备份
 - 凭据解析：base64 严格往返校验 + UTF-8 fatal 解码，取第一个 `:` 分割
 - 用户名与密码各自 SHA-256 后 `timingSafeEqual` 比较（定长哈希消除长度侧信道）
 - 401 响应带 `WWW-Authenticate: Basic realm="pure"`
@@ -47,9 +48,9 @@ proxy.ts（Next 中间件）
 
 - API 请求可被有效的移动设备 token（`Authorization: Bearer pim_...`）放行，页面仍必须 Basic
 - `/api/mobile/devices`（设备管理）**只认 Basic 不认 Bearer**——设备 token 不能用来添加/吊销其他设备
-- `/api/mobile/pairing/redeem`（扫码兑换）豁免认证，否则移动端在没密码时无法完成首次配对
+- `/api/mobile/discovery`（局域网发现）返回服务元数据，但不授予访问权限；移动端首次连接仍必须提交 Basic 账号和密码
 
-⚠️ Basic Auth 不加密传输，明文 HTTP 暴露到公网等于泄露密码。开放网络访问必须走 HTTPS 反向代理或可信 VPN。
+⚠️ Basic Auth 不加密传输，明文 HTTP 暴露到公网等于泄露密码。服务器部署应使用 HTTPS；在私有网络中也应只允许可信局域网或可信 VPN/组网工具访问。
 
 ## 文件访问白名单
 
@@ -93,23 +94,22 @@ proxy.ts（Next 中间件）
 | --- | --- | --- |
 | `~/.pi/agent/mobile-devices.json` | 0600 | 只存 token 的 SHA-256 哈希，绝不落明文 |
 | `~/.pi/agent/auth.json` | 0600 | API key / OAuth 凭据，由 pi AuthStorage 管理 |
-| 配对票据 | 内存 | `globalThis.__piMobilePairingTickets`，2 分钟 TTL |
 
 ## 移动端设备 token
 
 实现：`apps/web/lib/mobile-device-auth.ts`。
 
-- token 形如 `pim_` + 32 字节 base64url，只在兑换成功那一刻返回给客户端
+- token 形如 `pim_` + 32 字节 base64url，只在首次注册成功那一刻返回给客户端
 - 服务端存 `sha256(token)` 的 hex；校验时对提交的 token 哈希后 `timingSafeEqual` 比较
 - 读写用 `proper-lockfile` 串行化（与 pi auth storage 同一把锁的文件操作模式），`ensureFile` 建 0600
-- 配对票据（`mobile-pairing.ts`）：`id + secret`（secret 只存哈希），TTL 2 分钟；兑换时先置 `consumedAt` 预留再落盘，**防并发扫同一个二维码拿到两个 token**
+- 首次移动端连接只使用 Web Basic Auth；服务端成功创建设备后返回独立 Bearer token，之后移动端不再发送共享密码
 
 ## 给开发者的清单
 
 改任何 API 端点前确认：
 
 - [ ] 端点是否要纳入 Host/Origin 校验（API 默认纳入，豁免要有理由）
-- [ ] 认证策略：Basic / 移动 Bearer / 两者 / 显式豁免（如配对兑换）
+- [ ] 认证策略：Basic / 移动 Bearer / 两者；新增无认证端点必须有明确理由
 - [ ] 涉及文件路径时过白名单 + realpath；涉及 git 时校验仓库归属
 - [ ] 涉及项目资源时考虑项目信任门控
-- [ ] 绝不把 API key、token 明文返回给前端（状态端点只回「已配置/未配置」）
+- [ ] API key、移动 token 绝不返回明文；访问密码仅由已认证的设置端点按用户选择返回

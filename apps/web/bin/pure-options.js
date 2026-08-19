@@ -9,7 +9,14 @@ function isEnabled(value) {
   return typeof value === "string" && TRUE_VALUES.has(value.trim().toLowerCase());
 }
 
-function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
+function defaultHostname(env, config) {
+  if (env.PURE_NETWORK) {
+    throw new Error("PURE_NETWORK has been removed; choose the access range in Pure settings.");
+  }
+  return config?.network?.mode === "lan" ? "0.0.0.0" : "127.0.0.1";
+}
+
+function parseLaunchOptions(args = process.argv.slice(2), env = process.env, config) {
   const { values: cliArgs } = parseArgs({
     args,
     options: {
@@ -22,9 +29,9 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
 
   return {
     port: cliArgs.port ?? env.PURE_PORT ?? env.PORT ?? "30001",
-    hostname: cliArgs.hostname ?? env.PURE_HOSTNAME ?? "127.0.0.1",
+    hostname: cliArgs.hostname ?? env.PURE_HOSTNAME ?? defaultHostname(env, config),
     openBrowser: !cliArgs["no-open"] && !isEnabled(env.PURE_NO_OPEN),
   };
 }
 
-module.exports = { parseLaunchOptions };
+module.exports = { defaultHostname, parseLaunchOptions };

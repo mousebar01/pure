@@ -15,36 +15,42 @@ npm run dev                      # 开发模式
 npm run build && npm start
 ```
 
-启动后打开 [http://127.0.0.1:30001](http://127.0.0.1:30001)。pure 默认只监听 `127.0.0.1`。
+启动后打开 [http://127.0.0.1:30001](http://127.0.0.1:30001)。首次启动会在 `~/.pi/agent/pure-config.json` 创建权限为 `0600` 的本地配置，不生成随机密码，默认仅本机监听。请在“设置 → 移动设备”设置访问密码；需要手机或局域网访问时，选择访问范围并点击“保存并重启”。
 
 **可选参数：**
 
 ```bash
 PURE_PORT=8080 npm run start              # 自定义端口（开发时：PURE_PORT=8080 npm run dev）
-npm run start:lan                         # 在可信网络中开放访问（监听 0.0.0.0）
+PURE_USERNAME=operator \
+PURE_PASSWORD_FILE=/run/secrets/pure-password npm start # 部署时从 Secret 文件读取凭据
 PURE_ALLOWED_HOSTS=pure.internal npm run start  # 允许指定的代理或自定义主机名
-PURE_PASSWORD='足够长的随机密码' npm run start  # 启用 Basic Auth（用户名固定为 pi）
+PURE_CONFIG_PATH=/path/to/pure-config.json npm run start # 自定义本地配置路径
 PURE_NO_OPEN=1 npm run start              # 适用于后台服务或开机自启
 ```
 
-设置 `PURE_PASSWORD` 后，网页和所有 API 端点都会启用 HTTP Basic Auth，用户名固定为 `pi`。未设置或为空时不启用认证。
+普通启动使用本地配置中的账号、密码和访问范围。配置文件权限为 `0600`，密码可在设置页回显；部署时可用 `PURE_USERNAME` 与 `PURE_PASSWORD_FILE` 注入账号和 Secret 文件。旧的 `PURE_PASSWORD`、`PURE_NETWORK` 和 `start:lan` 入口不再支持。
+在“设置 → 移动设备”里可以修改账号、访问范围和自定义访问密码；局域网发现只返回服务元数据，首次连接仍需要 Basic 账号和密码。
 
 pure 可以调用高权限智能体。Basic Auth 不会加密传输中的密码，因此不要把明文 HTTP 暴露到互联网。远程访问时应使用可信反向代理提供 HTTPS，或通过可信 VPN 访问。
-API 请求只接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PURE_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
+API 请求只接受 loopback 名称、IP 字面量、Tailscale MagicDNS（`*.ts.net`）、当前监听主机名，以及 `PURE_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
 
 ## 移动端
 
-`apps/mobile` 里的 Expo 客户端连接到同一个 pure API。在可信局域网内开发时，先用密码启动服务，再启动 Expo：
+`apps/mobile` 里的 Expo 客户端连接到同一个 pure API。在可信局域网内开发时，不需要再手动配置密码：
 
 ```bash
-PURE_PASSWORD='choose-a-strong-password' npm run dev:lan
+npm run dev
 npm --prefix apps/mobile install
 npm run dev:mobile
 ```
 
-在 Pure Mobile 里输入 `http://<电脑局域网IP>:30001` 和同样的密码。凭据保存在 Android Keystore 或 iOS Keychain 中。明文 HTTP 只用于本地网络开发；离开局域网请使用 HTTPS 或可信 VPN。
+Pure Mobile 首次连接时手动输入服务地址、访问账号和访问密码；连接成功后，手机会保存独立的设备令牌，后续不再保存或发送共享密码。手机连接页也支持“查找局域网电脑”，找不到时仍可手动输入地址。设备令牌保存在 Android Keystore 或 iOS Keychain 中；明文 HTTP 只用于本地网络开发，离开局域网请使用 HTTPS 或可信 VPN。
 
-首次用密码连接后，Pure Mobile 会把共享密码兑换成独立的设备令牌。服务端只在 `~/.pi/agent/mobile-devices.json` 中保存令牌的 SHA-256 哈希；设备管理请求仍然要求 Web 密码，所以移动端令牌无法再添加其他设备。
+如果 pure 运行在 WSL2 中，手机通常不能直接访问 WSL 的 `172.x.x.x` 内部地址。请让 Windows 防火墙允许专用网络中的 TCP `30001`，让手机使用 Windows 主机的 `192.168.x.x` 地址，或者使用“查找局域网电脑”。Pure 不枚举 Tailscale、ZeroTier、Nebula、WireGuard 等网络；远程连接时请手动填写可达的 IP、MagicDNS 名称或 HTTPS origin。`127.0.0.1` 只适用于当前电脑本机。
+
+手机连接页的“查找局域网电脑”会在当前私有 Wi-Fi 网段内查找 `/api/mobile/discovery`，只展示确认运行 Pure 的局域网服务。发现接口只返回服务元数据，不会绕过密码或设备令牌授权；虚拟组网地址需要手动输入。
+
+首次用账号密码连接后，Pure Mobile 会保存独立的设备令牌。服务端只在 `~/.pi/agent/mobile-devices.json` 中保存令牌的 SHA-256 哈希；设备管理请求仍然要求 Web 凭据，所以移动端令牌无法再添加其他设备。
 
 ### 构建 Android APK
 

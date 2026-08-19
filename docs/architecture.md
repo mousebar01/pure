@@ -29,7 +29,7 @@ pure/
 Next.js 中间件（`matcher: ["/", "/api/:path*"]`）是**所有请求**的第一道门，依次做两件事：
 
 1. **Host/Origin 校验**：API 请求要求 Host 在允许集合内且 Origin 同源（防 DNS rebinding 和跨站请求），非 API 请求只查 Host。
-2. **认证**：`PURE_PASSWORD` 设置后启用 HTTP Basic Auth（用户名固定 `pi`），并放行移动端 Bearer token 与配对兑换端点。
+2. **认证**：本地配置在用户设置密码后提供 HTTP Basic Auth（账号是配置字段，默认 `pi`）；部署环境可通过 `PURE_USERNAME` + `PURE_PASSWORD_FILE` 注入，另外放行移动端 Bearer token。
 
 ### 3. 业务层（App Router 路由 + lib/）
 
@@ -104,7 +104,6 @@ Next.js dev 的热重载会重置模块级变量，所以所有**跨请求共享
 | `globalThis.__piAllowedRootsCache` | 文件访问白名单缓存（TTL 5s） |
 | `globalThis.__piAdditionalAllowedRoots` | 额外放行的文件根 |
 | `globalThis.__piModelsCache` | 模型数据缓存 |
-| `globalThis.__piMobilePairingTickets` | 移动端配对票据（内存态） |
 | `globalThis.__piLoginCallbacks` | OAuth 手动 code 回传的短时 token |
 
 > 开发约束：新增跨请求状态时沿用这个模式，并考虑是否需要像 `__piRpcImplementationVersion` 那样做版本失效。

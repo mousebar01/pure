@@ -12,7 +12,7 @@ npm install
 npm run dev        # 开发服务器 → http://127.0.0.1:30001
 ```
 
-`npm run dev` 实际执行 `node apps/web/scripts/run-next.mjs dev 127.0.0.1`，以 `PURE_PORT`/`PORT` 为端口（默认 30001）、`-H` 为监听地址。
+`npm run dev` 实际执行 `node apps/web/scripts/run-next.mjs dev`，以 `PURE_PORT`/`PORT` 为端口（默认 30001），并按 `~/.pi/agent/pure-config.json` 的 `network.mode` 选择监听范围。设置页的“保存并重启”由这个启动器监测请求文件并重启 Next.js 子进程；直接运行 `next dev` 不提供自动重启。
 
 **铁律：开发时不要跑 `next build` / `npm run build`。** 它会写 `.next/`，与正在运行的 dev server 冲突；构建只留给发布流程。类型检查请用 `npm run typecheck`（即 `tsc --noEmit`）。
 
@@ -21,7 +21,6 @@ npm run dev        # 开发服务器 → http://127.0.0.1:30001
 | 命令 | 作用 |
 | --- | --- |
 | `npm run dev` | 启动 Web 开发服务器 |
-| `npm run dev:lan` | 以 `0.0.0.0` 监听（局域网访问，配密码后使用） |
 | `npm run dev:mobile` | Expo 移动端（`--prefix apps/mobile start`） |
 | `npm run typecheck` | Web 类型检查（`tsc --noEmit`） |
 | `npm run typecheck:mobile` | 移动端类型检查 |
@@ -29,7 +28,7 @@ npm run dev        # 开发服务器 → http://127.0.0.1:30001
 | `npm run test:mobile` | 移动端测试 |
 | `npm run lint` | ESLint（根目录 `eslint .`） |
 | `npm run build` | Web 生产构建（发布用） |
-| `npm run start` / `start:lan` | 启动生产服务器（需要先 build） |
+| `npm run start` | 启动生产服务器（需要先 build） |
 
 ## 测试
 
@@ -46,7 +45,7 @@ node --test apps/web/lib/request-security.test.mjs   # 举例：安全层测试
 
 ```bash
 npm install                       # mobile 已在根 workspaces 里，根锁文件统一管理
-npm run dev:lan                    # 局域网模式启动服务（建议先设 PURE_PASSWORD）
+npm run dev                        # 在“设置 → 移动设备”中调整访问范围并保存并重启
 npm run dev:mobile                 # expo start --lan
 ```
 

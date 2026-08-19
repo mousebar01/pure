@@ -15,11 +15,12 @@
 | [security.md](security.md) | 安全模型：请求守门、Host/Origin 校验、认证（Basic / 移动 Bearer）、文件访问白名单、项目信任 | 改任何 API/文件/认证代码前必读 |
 | [api.md](api.md) | API 路由参考：按领域分组的全部路由、方法、关键行为 | 前后端联调、加新端点时 |
 | [configuration.md](configuration.md) | 环境变量、CLI 参数、`~/.pi/agent/` 下的数据文件（models.json / auth.json / mobile-devices.json） | 部署、排障、扩展配置 |
-| [clients.md](clients.md) | Expo 移动端：连接、配对兑换、缓存与重连 | 改移动端的人 |
+| [clients.md](clients.md) | Expo 移动端：地址连接、设备令牌、缓存与重连 | 改移动端的人 |
 | [i18n.md](i18n.md) | 国际化机制与新增语言步骤 | 做翻译/本地化的人 |
 | [ci.md](ci.md) | CI 现状与建议：现有 Web 检查、可选项 | 维护仓库/提 PR 前想确认门禁的人 |
 | [release.md](release.md) | 两个发布渠道：Web 源码、移动端 EAS | 要发版的人 |
 | [cheatsheet.md](cheatsheet.md) | CI/CD/版本号/Release 一页纸速查（面向新手） | 还不熟工程流程的人，先看这篇 |
+| [confirmed-product-plan.md](confirmed-product-plan.md) | 已确认的批注、归档、移动连接、访问凭据、网络与部署边界及实施顺序 | 接手本轮产品改造的开发者或 Agent |
 
 ## 一张图
 

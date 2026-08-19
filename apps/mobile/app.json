@@ -6,7 +6,6 @@
     "description": "Mobile client for pure",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "pure-mobile",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#f5f5f5",
     "primaryColor": "#2563eb",
@@ -31,15 +30,7 @@
         "expo-image-picker",
         {
           "photosPermission": "允许 Pure Mobile 选择要发送给 Pi 的图片。",
-          "cameraPermission": "允许 Pure Mobile 扫描电脑上的配对二维码。",
           "microphonePermission": false
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "允许 Pure Mobile 扫描电脑上的配对二维码。",
-          "recordAudioAndroid": false
         }
       ]
     ],

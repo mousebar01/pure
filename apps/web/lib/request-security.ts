@@ -30,6 +30,13 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost");
 }
 
+function isTailscaleHostname(hostname: string): boolean {
+  // MagicDNS hostnames are stable under the ts.net suffix. The connection
+  // still has to reach this process through the Tailscale interface, and
+  // password auth remains enabled for all non-loopback deployments.
+  return hostname.endsWith(".ts.net") && hostname.length > ".ts.net".length;
+}
+
 function configuredHostnamesFromEnvironment(): string[] {
   return [
     process.env.PURE_HOSTNAME,
@@ -69,9 +76,10 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
 }
 
 /**
- * Only trust local names, IP literals, or the hostname explicitly selected by
- * the operator. IP literals preserve LAN access but cannot be DNS-rebound
- * because the browser keeps the literal address in the Host header.
+ * Trust local names, IP literals, Tailscale MagicDNS names, or the hostname
+ * explicitly selected by the operator. IP literals preserve LAN access but
+ * cannot be DNS-rebound because the browser keeps the literal address in the
+ * Host header.
  */
 export function isApiRequestHostAllowed(
   request: Request,
@@ -80,11 +88,17 @@ export function isApiRequestHostAllowed(
   const host = request.headers.get("host");
   const hostname = host ? hostnameFromAuthority(host) : null;
   if (!hostname) return false;
-  if (isLoopbackHostname(hostname) || isIP(hostname)) return true;
+  if (isLoopbackHostname(hostname) || isIP(hostname) || isTailscaleHostname(hostname)) return true;
 
   return configuredHostnames.some(
     (configured) => normalizeConfiguredHostname(configured) === hostname,
   );
+}
+
+export function isLoopbackRequest(request: Request): boolean {
+  const host = request.headers.get("host");
+  const hostname = host ? hostnameFromAuthority(host) : null;
+  return hostname !== null && (isLoopbackHostname(hostname) || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1");
 }
 
 /** Reject browser cross-site API requests while preserving non-browser clients. */

@@ -106,12 +106,20 @@
 
 | 端点 | 方法 | 行为 |
 | --- | --- | --- |
-| `/api/mobile/devices` | GET/POST/DELETE/PATCH | 设备管理（**必须配 `PURE_PASSWORD`**，否则 409；只认 Basic，不认移动 Bearer） |
+| `/api/mobile/devices` | GET/POST/DELETE/PATCH | 设备管理（首次连接使用 Basic 账号/密码；只认 Basic，不认移动 Bearer） |
 | `/api/mobile/device` | GET/DELETE | 当前设备（Bearer 自鉴权） |
-| `/api/mobile/pairing` | POST | 创建配对票据 + 建议 URL（二维码）；GET 查状态 |
-| `/api/mobile/pairing/redeem` | POST | 兑换票据换设备 token（**代理豁免认证**；过期 410 / 已用 409 / 错误 401） |
+| `/api/mobile/discovery` | GET | 返回服务名、服务 origin、端口和版本等元数据；不枚举虚拟组网地址 |
 
-配对与 token 细节见 [security.md](security.md#移动端设备-token) 和 [clients.md](clients.md#移动端)。
+## 访问配置
+
+| 端点 | 方法 | 行为 |
+| --- | --- | --- |
+| `/api/config/security` | GET | 返回访问账号、密码状态、已保存密码（仅配置密码）及网络范围；端点受访问认证保护 |
+| `/api/config/security` | PATCH | 修改账号和 `local`/`lan` 访问范围；仅保存配置 |
+| `/api/config/security/restart` | POST | 请求受支持的 Pure 启动器重启，以应用新的监听范围；直接运行 Next.js 时返回 409 |
+| `/api/config/security` | POST | 提交 12-512 字符自定义密码；以明文写入权限为 `0600` 的本地配置 |
+
+设备 token 细节见 [security.md](security.md#移动端设备-token) 和 [clients.md](clients.md#移动端)。
 
 ## 响应约定与错误
 

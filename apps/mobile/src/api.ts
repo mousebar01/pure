@@ -32,7 +32,7 @@ export function connectionErrorMessage(cause: unknown): string {
 
 export function buildAuthorizationHeader(config: ConnectionConfig): string | null {
   if (config.token) return `Bearer ${config.token}`;
-  if (config.password) return `Basic ${encodeBase64(`pi:${config.password}`)}`;
+  if (config.password) return `Basic ${encodeBase64(`${config.username || "pi"}:${config.password}`)}`;
   return null;
 }
 
@@ -65,7 +65,7 @@ export class PiApi {
     }
     const body = await response.json().catch(() => ({})) as T & { error?: string };
     if (!response.ok) {
-      if (response.status === 401) throw new ConnectionError("authentication", "认证失败。请检查密码，或重新扫码配对。", 401);
+      if (response.status === 401) throw new ConnectionError("authentication", "认证失败。请检查访问账号和密码。", 401);
       if (response.status === 403) throw new ConnectionError("server", "服务器拒绝了此地址。请检查 PURE_ALLOWED_HOSTS 配置。", 403);
       if (response.status === 404 && path === "/api/health") throw new ConnectionError("version", "这不是兼容的 pure 服务，或服务端版本过旧。", 404);
       throw new ConnectionError("server", body.error ?? `服务器返回 ${response.status}`, response.status);
@@ -77,12 +77,8 @@ export class PiApi {
     await this.request<{ ok: boolean }>("/api/health");
   }
 
-  async pairDevice(name: string): Promise<{ token: string; device: { id: string; name: string; createdAt: string } }> {
+  async registerDevice(name: string): Promise<{ token: string; device: { id: string; name: string; createdAt: string } }> {
     return this.request("/api/mobile/devices", { method: "POST", body: JSON.stringify({ name }) });
-  }
-
-  async redeemPairing(id: string, secret: string, name: string): Promise<{ token: string; device: { id: string; name: string; createdAt: string } }> {
-    return this.request("/api/mobile/pairing/redeem", { method: "POST", body: JSON.stringify({ id, secret, name }) });
   }
 
   async currentDevice(): Promise<MobileDeviceInfo> {
@@ -182,8 +178,4 @@ export class PiApi {
     source.addEventListener("error", errorListener);
     return () => source.close();
   }
-}
-
-export function normalizedServerUrl(value: string): string {
-  return normalizeServerUrl(value);
 }

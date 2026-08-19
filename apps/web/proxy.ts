@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
+  isLoopbackRequest,
 } from "@/lib/request-security";
 import {
   isValidBasicAuthorization,
@@ -23,15 +24,19 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  const password = process.env.PURE_PASSWORD;
   const authorization = request.headers.get("authorization");
   const isMobileDeviceManagement = request.nextUrl.pathname === "/api/mobile/devices";
-  const isMobilePairingRedemption = request.nextUrl.pathname === "/api/mobile/pairing/redeem";
+  const isMobileDiscovery = request.nextUrl.pathname === "/api/mobile/discovery";
+  const isCredentialManagement = request.nextUrl.pathname === "/api/config/security"
+    || request.nextUrl.pathname === "/api/config/security/restart";
+  const passwordEnabled = isWebPasswordEnabled();
+  const validBasicAuthorization = isValidBasicAuthorization(authorization);
   if (
-    isWebPasswordEnabled(password)
-    && !isMobilePairingRedemption
-    && !isValidBasicAuthorization(authorization, password)
-    && (!isApiRequest || isMobileDeviceManagement || !isValidMobileBearerAuthorization(authorization))
+    passwordEnabled
+    && !isLoopbackRequest(request)
+    && !isMobileDiscovery
+    && !validBasicAuthorization
+    && (isCredentialManagement || !isApiRequest || isMobileDeviceManagement || !isValidMobileBearerAuthorization(authorization))
   ) {
     return new NextResponse("Authentication required", {
       status: 401,

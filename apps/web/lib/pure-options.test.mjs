@@ -55,3 +55,12 @@ test("supports PURE_HOSTNAME without trusting the ambient system HOSTNAME", () =
     "0.0.0.0",
   );
 });
+
+test("uses the persisted network mode and keeps credentials separate", () => {
+  assert.equal(parseLaunchOptions([], {}, { network: { mode: "lan" } }).hostname, "0.0.0.0");
+  assert.equal(parseLaunchOptions([], {}, { network: { mode: "local" } }).hostname, "127.0.0.1");
+});
+
+test("rejects the removed PURE_NETWORK entry point", () => {
+  assert.throws(() => parseLaunchOptions([], { PURE_NETWORK: "lan" }), /PURE_NETWORK has been removed/);
+});

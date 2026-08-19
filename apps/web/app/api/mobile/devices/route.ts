@@ -5,7 +5,7 @@ import { isWebPasswordEnabled } from "@/lib/web-auth";
 function passwordRequired(): NextResponse | null {
   if (isWebPasswordEnabled()) return null;
   return NextResponse.json(
-    { error: "PURE_PASSWORD must be configured before pairing mobile devices" },
+    { error: "请先在设置中配置 Pure 访问密码" },
     { status: 409, headers: { "Cache-Control": "no-store" } },
   );
 }

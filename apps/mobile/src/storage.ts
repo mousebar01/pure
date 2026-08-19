@@ -2,8 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import type { ConnectionConfig, MobilePreferences } from "./types";
 import { DEFAULT_PREFERENCES, normalizePreferences } from "./preferences";
 
-const CONNECTION_KEY = "pure-mobile.connection.v1";
-const CONNECTIONS_KEY = "pure-mobile.connections.v2";
+const CONNECTIONS_KEY = "pure-mobile.connections.v3";
 const THEME_KEY = "pure-mobile.theme.v1";
 const PREFERENCES_KEY = "pure-mobile.preferences.v1";
 export async function loadConnection(): Promise<ConnectionConfig | null> {
@@ -15,12 +14,6 @@ export async function loadConnection(): Promise<ConnectionConfig | null> {
       const active = profiles.find((profile) => profile.profileId === stored.activeId) ?? profiles[0];
       if (active?.serverUrl) return active;
     }
-    const value = await SecureStore.getItemAsync(CONNECTION_KEY);
-    if (!value) return null;
-    const parsed = JSON.parse(value) as Partial<ConnectionConfig>;
-    if (typeof parsed.serverUrl !== "string") return null;
-    if (typeof parsed.token === "string") return { serverUrl: parsed.serverUrl, token: parsed.token, ...(typeof parsed.deviceId === "string" ? { deviceId: parsed.deviceId } : {}) };
-    if (typeof parsed.password === "string") return { serverUrl: parsed.serverUrl, password: parsed.password };
     return null;
   } catch {
     return null;
@@ -35,8 +28,7 @@ export async function loadConnections(): Promise<{ activeId?: string; profiles: 
       const profiles = Array.isArray(stored.profiles) ? stored.profiles.filter((profile) => typeof profile?.serverUrl === "string") : [];
       return { activeId: stored.activeId, profiles };
     }
-    const legacy = await loadConnection();
-    return legacy ? { activeId: legacy.profileId, profiles: [legacy] } : { profiles: [] };
+    return { profiles: [] };
   } catch {
     return { profiles: [] };
   }
@@ -50,14 +42,12 @@ export async function saveConnection(config: ConnectionConfig): Promise<void> {
   await SecureStore.setItemAsync(CONNECTIONS_KEY, JSON.stringify({ activeId: profileId, profiles }), {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
-  await SecureStore.deleteItemAsync(CONNECTION_KEY);
 }
 
 export async function clearConnection(): Promise<void> {
   const stored = await loadConnections();
   const profiles = stored.profiles.filter((profile) => profile.profileId !== stored.activeId);
   await SecureStore.setItemAsync(CONNECTIONS_KEY, JSON.stringify({ activeId: profiles[0]?.profileId, profiles }), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-  await SecureStore.deleteItemAsync(CONNECTION_KEY);
 }
 
 export async function selectConnection(profileId: string): Promise<ConnectionConfig | null> {
