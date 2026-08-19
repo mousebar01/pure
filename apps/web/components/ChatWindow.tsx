@@ -214,6 +214,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
+  const [pendingAnnotations, setPendingAnnotations] = useState<ConversationAnnotation[]>([]);
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -394,6 +395,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+  const pendingAnnotationsByEntryId = useMemo(() => {
+    const grouped = new Map<string, Array<{ annotation: ConversationAnnotation; number: number }>>();
+    pendingAnnotations.forEach((annotation, index) => {
+      if (!annotation.sourceEntryId) return;
+      const items = grouped.get(annotation.sourceEntryId) ?? [];
+      items.push({ annotation, number: index + 1 });
+      grouped.set(annotation.sourceEntryId, items);
+    });
+    return grouped;
+  }, [pendingAnnotations]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -443,6 +454,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
+      onAnnotationsChange={setPendingAnnotations}
     />
   );
 
@@ -655,6 +667,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     sessionId={data?.sessionId ?? session?.id ?? sessionIdRef.current ?? undefined}
                     processDetails={options.processDetails}
                     onAddAnnotation={options.processDetails ? undefined : handleAddAnnotation}
+                    pendingAnnotations={options.processDetails ? undefined : pendingAnnotationsByEntryId.get(entryIds[idx])}
+                    nextAnnotationNumber={pendingAnnotations.length + 1}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;

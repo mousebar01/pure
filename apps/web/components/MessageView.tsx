@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useMemo, useCallback, type RefObject } from "react";
 import { Eye, FileText, Pencil, Search, Terminal, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
-import { MessageSelectionPopover, useMessageSelectionState } from "./MessageSelectionPopover";
+import { MessageSelectionPopover, useMessageSelectionState, type MessageSelectionSnapshot } from "./MessageSelectionPopover";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -27,6 +27,122 @@ import { createConversationAnnotation, parseAnnotatedMessage, type ConversationA
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
+const annotationHighlightRanges = new Map<object, Range[]>();
+
+function syncAnnotationHighlights(): void {
+  if (typeof CSS === "undefined" || !("highlights" in CSS) || typeof Highlight === "undefined") return;
+  const ranges = Array.from(annotationHighlightRanges.values()).flat();
+  if (ranges.length === 0) {
+    CSS.highlights.delete("conversation-annotation");
+    return;
+  }
+  CSS.highlights.set("conversation-annotation", new Highlight(...ranges));
+}
+
+function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (parent?.closest(".message-selection-popover, .conversation-annotation-marker")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let offset = 0;
+  let startNode: Text | null = null;
+  let endNode: Text | null = null;
+  let startInNode = 0;
+  let endInNode = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const textNode = node as Text;
+    const nextOffset = offset + textNode.data.length;
+    if (!startNode && start >= offset && start <= nextOffset) {
+      startNode = textNode;
+      startInNode = Math.min(textNode.data.length, start - offset);
+    }
+    if (end >= offset && end <= nextOffset) {
+      endNode = textNode;
+      endInNode = Math.min(textNode.data.length, end - offset);
+      break;
+    }
+    offset = nextOffset;
+  }
+  if (!startNode || !endNode) return null;
+  const range = document.createRange();
+  range.setStart(startNode, startInNode);
+  range.setEnd(endNode, endInNode);
+  return range;
+}
+
+function PendingAnnotationHighlights({ rootRef, annotations, activeSelection }: {
+  rootRef: RefObject<HTMLDivElement | null>;
+  annotations?: Array<{ annotation: ConversationAnnotation; number: number }>;
+  activeSelection: MessageSelectionSnapshot | null;
+}) {
+  const ownerRef = useRef<object | null>(null);
+  if (!ownerRef.current) ownerRef.current = {};
+  const [markers, setMarkers] = useState<Array<{ id: string; number: number; left: number; top: number }>>([]);
+
+  useEffect(() => {
+    const owner = ownerRef.current!;
+    const root = rootRef.current;
+    if (!root) return;
+    root.classList.add("conversation-annotation-root");
+
+    const update = () => {
+      const ranges: Range[] = [];
+      const nextMarkers: Array<{ id: string; number: number; left: number; top: number }> = [];
+      const rootRect = root.getBoundingClientRect();
+      const contentRoot = root.querySelector<HTMLElement>("[data-annotation-content]") ?? root;
+      for (const item of annotations ?? []) {
+        const { annotation, number } = item;
+        if (annotation.sourceStartOffset === undefined || annotation.sourceEndOffset === undefined) continue;
+        const range = rangeFromTextOffsets(contentRoot, annotation.sourceStartOffset, annotation.sourceEndOffset);
+        if (!range) continue;
+        ranges.push(range);
+        const rects = range.getClientRects();
+        const rect = rects.length > 0 ? rects[rects.length - 1] : range.getBoundingClientRect();
+        nextMarkers.push({
+          id: annotation.id,
+          number,
+          left: Math.max(0, Math.min(root.clientWidth - 20, rect.right - rootRect.left + 4)),
+          top: rect.top - rootRect.top + rect.height / 2,
+        });
+      }
+      if (activeSelection) {
+        const range = rangeFromTextOffsets(contentRoot, activeSelection.startOffset, activeSelection.endOffset);
+        if (range) ranges.push(range);
+      }
+      annotationHighlightRanges.set(owner, ranges);
+      syncAnnotationHighlights();
+      setMarkers(nextMarkers);
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      root.classList.remove("conversation-annotation-root");
+      annotationHighlightRanges.delete(owner);
+      syncAnnotationHighlights();
+    };
+  }, [activeSelection, annotations, rootRef]);
+
+  return markers.map((marker) => (
+    <span
+      key={marker.id}
+      className="conversation-annotation-marker"
+      style={{ left: marker.left, top: marker.top }}
+      aria-label={`批注 ${marker.number}`}
+    >
+      {marker.number}
+    </span>
+  ));
+}
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
@@ -75,6 +191,8 @@ interface Props {
   sessionId?: string;
   processDetails?: boolean;
   onAddAnnotation?: (annotation: ConversationAnnotation) => void;
+  pendingAnnotations?: Array<{ annotation: ConversationAnnotation; number: number }>;
+  nextAnnotationNumber?: number;
 }
 
 function formatTime(ts?: number): string | null {
@@ -104,12 +222,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} entryId={entryId} onOpenFile={onOpenFile} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onAddAnnotation={onAddAnnotation} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} entryId={entryId} onOpenFile={onOpenFile} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -142,10 +260,12 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId
     && prev.processDetails === next.processDetails
-    && prev.onAddAnnotation === next.onAddAnnotation;
+    && prev.onAddAnnotation === next.onAddAnnotation
+    && prev.pendingAnnotations === next.pendingAnnotations
+    && prev.nextAnnotationNumber === next.nextAnnotationNumber;
 });
 
-function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAssistantEntryId, onEditContent, onAddAnnotation }: {
+function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAssistantEntryId, onEditContent, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: {
   message: UserMessage;
   cwd?: string;
   entryId?: string;
@@ -154,6 +274,8 @@ function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAs
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
   onAddAnnotation?: (annotation: ConversationAnnotation) => void;
+  pendingAnnotations?: Array<{ annotation: ConversationAnnotation; number: number }>;
+  nextAnnotationNumber?: number;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -169,10 +291,11 @@ function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAs
 
   const parsedContent = useMemo(() => parseAnnotatedMessage(content), [content]);
   const selectionState = useMessageSelectionState(
-    useCallback((quote: string, comment: string) => {
-      onAddAnnotation?.(createConversationAnnotation({ quote, comment, sourceRole: "user", sourceEntryId: entryId }));
+    useCallback((selection, comment: string) => {
+      onAddAnnotation?.(createConversationAnnotation({ quote: selection.quote, comment, sourceRole: "user", sourceEntryId: entryId, sourceStartOffset: selection.startOffset, sourceEndOffset: selection.endOffset }));
     }, [entryId, onAddAnnotation]),
     !onAddAnnotation,
+    nextAnnotationNumber,
   );
 
   const imageBlocks: ImageContent[] =
@@ -203,6 +326,7 @@ function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAs
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
+          data-annotation-content
           style={{
             flex: 1,
             minWidth: 0,
@@ -327,6 +451,9 @@ function UserMessageView({ message, cwd, entryId, onOpenFile, onNavigate, prevAs
         </div>
       )}
       <MessageSelectionPopover state={selectionState} />
+      {((pendingAnnotations?.length ?? 0) > 0 || selectionState.selection) && (
+        <PendingAnnotationHighlights rootRef={selectionState.rootRef} annotations={pendingAnnotations} activeSelection={selectionState.commentOpen ? selectionState.selection : null} />
+      )}
     </div>
   );
 }
@@ -364,6 +491,8 @@ function AssistantMessageView({
   forking,
   processDetails,
   onAddAnnotation,
+  pendingAnnotations,
+  nextAnnotationNumber,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -379,6 +508,8 @@ function AssistantMessageView({
   forking?: boolean;
   processDetails?: boolean;
   onAddAnnotation?: (annotation: ConversationAnnotation) => void;
+  pendingAnnotations?: Array<{ annotation: ConversationAnnotation; number: number }>;
+  nextAnnotationNumber?: number;
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
@@ -395,10 +526,11 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
   const selectionState = useMessageSelectionState(
-    useCallback((quote: string, comment: string) => {
-      onAddAnnotation?.(createConversationAnnotation({ quote, comment, sourceRole: "assistant", sourceEntryId: entryId }));
+    useCallback((selection, comment: string) => {
+      onAddAnnotation?.(createConversationAnnotation({ quote: selection.quote, comment, sourceRole: "assistant", sourceEntryId: entryId, sourceStartOffset: selection.startOffset, sourceEndOffset: selection.endOffset }));
     }, [entryId, onAddAnnotation]),
     !onAddAnnotation || !!isStreaming || !!processDetails,
+    nextAnnotationNumber,
   );
 
   // Streaming-based timing for thinking blocks
@@ -555,7 +687,7 @@ function AssistantMessageView({
         })()}
       </div>}
 
-      <div className={processDetails ? "process-message-blocks" : undefined} style={{ display: "flex", flexDirection: "column", gap: processDetails ? 5 : 8 }}>
+      <div data-annotation-content className={processDetails ? "process-message-blocks" : undefined} style={{ display: "flex", flexDirection: "column", gap: processDetails ? 5 : 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
@@ -661,6 +793,9 @@ function AssistantMessageView({
         )}
       </div>
       <MessageSelectionPopover state={selectionState} />
+      {((pendingAnnotations?.length ?? 0) > 0 || selectionState.selection) && (
+        <PendingAnnotationHighlights rootRef={selectionState.rootRef} annotations={pendingAnnotations} activeSelection={selectionState.commentOpen ? selectionState.selection : null} />
+      )}
     </div>
   );
 }

@@ -15,7 +15,7 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
-import { Check, MessageSquareQuote, Pencil, X } from "lucide-react";
+import { Check, MessageSquareText, Pencil, X } from "lucide-react";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
@@ -72,6 +72,7 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  onAnnotationsChange?: (annotations: ConversationAnnotation[]) => void;
 }
 
 export interface ChatInputHandle {
@@ -273,45 +274,41 @@ function AnnotationDraftCard({
   };
 
   return (
-    <div style={{ display: "flex", gap: 8, padding: "9px 10px", borderTop: index === 0 ? "none" : "1px solid color-mix(in srgb, var(--border) 72%, transparent)" }}>
-      <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 7, background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)", fontSize: 11, fontWeight: 700 }}>{index + 1}</div>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, color: "var(--text-dim)", fontSize: 10, fontWeight: 600 }}>
-          <MessageSquareQuote size={12} strokeWidth={1.8} />
-          引用片段
-        </div>
-        <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-          {annotation.quote}
+    <div className={`annotation-draft-row${editing ? " is-editing" : ""}`}>
+      <span className="annotation-draft-row__number">{index + 1}</span>
+      <div className="annotation-draft-row__content">
+        <div className="annotation-draft-row__summary" title={`${annotation.quote}${annotation.comment ? ` · ${annotation.comment}` : ""}`}>
+          <span className="annotation-draft-row__quote">{annotation.quote}</span>
+          <span className="annotation-draft-row__separator">·</span>
+          <span className={annotation.comment ? "annotation-draft-row__comment" : "annotation-draft-row__empty"}>
+            {annotation.comment || "仅引用"}
+          </span>
         </div>
         {editing ? (
-          <div style={{ marginTop: 7 }}>
+          <div className="annotation-draft-row__editor">
             <textarea
               autoFocus
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               rows={2}
               placeholder="补充评论（可留空，仅引用这段内容）"
-              style={{ width: "100%", minHeight: 48, resize: "vertical", padding: "6px 7px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 12, lineHeight: 1.4 }}
+              className="annotation-draft-row__input"
               onKeyDown={(event) => {
                 if (event.key === "Escape") { event.preventDefault(); setEditing(false); }
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
               }}
             />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 5, marginTop: 5 }}>
-              <button type="button" onClick={() => setEditing(false)} style={{ height: 24, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>取消</button>
-              <button type="button" onClick={save} style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 24, padding: "0 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}><Check size={12} />保存</button>
+            <div className="annotation-draft-row__editor-actions">
+              <button type="button" onClick={() => setEditing(false)} className="annotation-draft-row__text-button">取消</button>
+              <button type="button" onClick={save} className="annotation-draft-row__save"><Check size={12} />保存</button>
             </div>
           </div>
-        ) : annotation.comment ? (
-          <div style={{ marginTop: 5, color: "var(--text)", fontSize: 12, lineHeight: 1.4 }}><span style={{ color: "var(--text-dim)", marginRight: 4 }}>评论：</span>{annotation.comment}</div>
-        ) : (
-          <div style={{ marginTop: 5, color: "var(--text-dim)", fontSize: 11 }}>仅引用，未添加文字评论</div>
-        )}
+        ) : null}
       </div>
       {!editing && (
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
-          <button type="button" aria-label="Edit comment" title="编辑评论" onClick={() => setEditing(true)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, border: 0, borderRadius: 5, background: "transparent", color: "var(--text-dim)", cursor: "pointer" }}><Pencil size={12} /></button>
-          <button type="button" aria-label="Remove annotation" title="删除批注" onClick={() => onRemove(annotation.id)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, border: 0, borderRadius: 5, background: "transparent", color: "var(--text-dim)", cursor: "pointer" }}><X size={14} /></button>
+        <div className="annotation-draft-row__actions">
+          <button type="button" aria-label="Edit comment" title="编辑评论" onClick={() => setEditing(true)}><Pencil size={12} /></button>
+          <button type="button" aria-label="Remove annotation" title="删除批注" onClick={() => onRemove(annotation.id)}><X size={14} /></button>
         </div>
       )}
     </div>
@@ -322,23 +319,77 @@ function AnnotationDraftShelf({
   annotations,
   onUpdate,
   onRemove,
+  onClear,
 }: {
   annotations: ConversationAnnotation[];
   onUpdate: (id: string, comment: string) => void;
   onRemove: (id: string) => void;
+  onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const controlRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!controlRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (annotations.length === 0) setOpen(false);
+  }, [annotations.length]);
+
   if (annotations.length === 0) return null;
   return (
-    <div style={{ marginBottom: 8, border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))", borderRadius: 10, background: "color-mix(in srgb, var(--accent) 4%, var(--bg-panel))", overflow: "hidden", boxShadow: "0 4px 16px rgba(37,99,235,0.06)" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 10px", borderBottom: "1px solid color-mix(in srgb, var(--accent) 15%, var(--border))" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--accent)", fontSize: 11, fontWeight: 700 }}>
-          <MessageSquareQuote size={14} strokeWidth={1.9} />
-          待发送批注
-          <span style={{ minWidth: 17, height: 17, padding: "0 5px", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", fontSize: 10 }}>{annotations.length}</span>
-        </div>
-        <span style={{ color: "var(--text-dim)", fontSize: 10 }}>发送时一起提交</span>
+    <div ref={controlRef} className="annotation-draft-control">
+      <div className="annotation-draft-pill">
+        <button
+          type="button"
+          className="annotation-draft-trigger"
+          aria-expanded={open}
+          aria-controls="pending-annotation-list"
+          onClick={() => setOpen((current) => !current)}
+        >
+          <MessageSquareText size={12} aria-hidden="true" />
+          <span>{annotations.length} 条批注</span>
+        </button>
+        <button
+          type="button"
+          className="annotation-draft-clear"
+          aria-label={annotations.length === 1 ? "删除批注" : "删除全部批注"}
+          title={annotations.length === 1 ? "删除批注" : "删除全部批注"}
+          onClick={() => {
+            onClear();
+            setOpen(false);
+          }}
+        >
+          <X size={12} aria-hidden="true" />
+        </button>
       </div>
-      {annotations.map((annotation, index) => <AnnotationDraftCard key={annotation.id} annotation={annotation} index={index} onUpdate={onUpdate} onRemove={onRemove} />)}
+      {open ? (
+        <div id="pending-annotation-list" className="annotation-draft-popover">
+          <div className="annotation-draft-shelf" aria-label={`待发送批注 ${annotations.length} 条`}>
+            {annotations.map((annotation, index) => (
+              <AnnotationDraftCard
+                key={annotation.id}
+                annotation={annotation}
+                index={index}
+                onUpdate={(id, comment) => {
+                  onUpdate(id, comment);
+                  setOpen(false);
+                }}
+                onRemove={(id) => {
+                  onRemove(id);
+                  setOpen(false);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -416,6 +467,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  onAnnotationsChange,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -477,6 +529,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
   annotationsRef.current = annotations;
+
+  useEffect(() => {
+    onAnnotationsChange?.(annotations);
+  }, [annotations, onAnnotationsChange]);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -1313,11 +1369,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             ))}
           </div>
         )}
-        <AnnotationDraftShelf
-          annotations={annotations}
-          onUpdate={(id, comment) => setAnnotations((prev) => prev.map((annotation) => annotation.id === id ? { ...annotation, comment } : annotation))}
-          onRemove={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}
-        />
         {/* Retry banner */}
         {retryInfo && (
           <div style={{
@@ -1728,10 +1779,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           })()}
           <div
             style={{
+              position: "relative",
               minWidth: 0,
               display: "flex",
-              gap: 8,
-              alignItems: "center",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: annotations.length > 0 ? 9 : 0,
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
@@ -1742,6 +1795,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          <AnnotationDraftShelf
+            annotations={annotations}
+            onUpdate={(id, comment) => setAnnotations((prev) => prev.map((annotation) => annotation.id === id ? { ...annotation, comment } : annotation))}
+            onRemove={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}
+            onClear={() => setAnnotations([])}
+          />
+          <div className="chat-input-compose-row" style={{ width: "100%", alignSelf: "stretch" }}>
           <textarea
             ref={textareaRef}
             value={value}
@@ -1869,6 +1929,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               {t("chat.send")}
             </button>
           )}
+          </div>
           </div>
         </div>
 

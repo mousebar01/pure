@@ -6,6 +6,9 @@ export interface ConversationAnnotation {
   comment: string;
   sourceRole?: AnnotationSourceRole;
   sourceEntryId?: string;
+  /** Text offsets inside the rendered source message, used for draft highlighting. */
+  sourceStartOffset?: number;
+  sourceEndOffset?: number;
 }
 
 const ANNOTATION_START = "<!-- pi:conversation-annotations -->";

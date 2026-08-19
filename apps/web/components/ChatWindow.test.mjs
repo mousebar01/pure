@@ -52,3 +52,9 @@ test("passes fork actions to rendered assistant messages", () => {
   assert.match(source, /onFork=\{sessionBusy \|\| isNew/);
   assert.match(source, /forking=\{forkingEntryId === entryIds\[idx\]\}/);
 });
+
+test("keeps pending annotation highlights synchronized with the composer", () => {
+  assert.match(source, /onAnnotationsChange=\{setPendingAnnotations\}/);
+  assert.match(source, /pendingAnnotations=\{options\.processDetails \? undefined : pendingAnnotationsByEntryId\.get\(entryIds\[idx\]\)\}/);
+  assert.match(source, /nextAnnotationNumber=\{pendingAnnotations\.length \+ 1\}/);
+});
